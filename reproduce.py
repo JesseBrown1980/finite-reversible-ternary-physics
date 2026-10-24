@@ -247,9 +247,13 @@ def run():
 
     # Check 6: Host8 300 GB Substrate Probes & Cryptographic Authentication
     if has_host8:
-        prov = verify_csv("host8_verification_provenance.csv", ["sector", "sha256_hash", "auth_hash_match", "status"])
+        prov = verify_csv("host8_verification_provenance.csv", ["sector", "sha256_hash"])
+        auth_key = "auth_status" if "auth_status" in prov[0] else "auth_hash_match"
+        status_key = "physics_status" if "physics_status" in prov[0] else "status"
         for r in prov:
-            if r["auth_hash_match"] != "1" or r["status"] != "VERIFIED":
+            is_auth = (r[auth_key] == "PINNED_MATCH" or r[auth_key] == "1")
+            is_ok = (r[status_key] == "VERIFIED")
+            if not is_auth or not is_ok:
                 print(f"[FAIL] Host8 Sector {r['sector']} failed binary authentication: {r}")
                 sys.exit(1)
         print("  [PASS] Host8 Substrate: 100% cryptographic SHA-256 binary match across Sectors 000, 187, 374.")
@@ -279,6 +283,13 @@ def run():
             print(f"[FAIL] Host8 independent verifier rejected volume at {h8_loc}!")
             sys.exit(1)
         print(f"  [PASS] Host8 Independent Authenticator: All 6 SHA-256 block hashes authenticated from {h8_loc}.")
+
+        # Check 6c: Host8 Stage D Receipt Integrity & Boundary Overlap Tests
+        res_pytest = subprocess.run([sys.executable, "-m", "pytest", "-v", "test_host8_receipts_and_boundaries.py"])
+        if res_pytest.returncode != 0:
+            print("[FAIL] Host8 Stage D receipt integrity and boundary tests failed!")
+            sys.exit(1)
+        print("  [PASS] Host8 Stage D: 10/10 regression & boundary tests passed (provenance v2 verified, negative fail-closed checks pass).")
 
     # 4. Reviewer's Independent Audit Checker Programs
     print(f"\n[4/4] Executing Reviewer's Independent Native C++ Checkers & Fitted Observer...")

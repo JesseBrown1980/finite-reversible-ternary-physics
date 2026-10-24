@@ -25,6 +25,10 @@
 > - [`host8_verification_provenance.csv`](host8_verification_provenance.csv): Strict cryptographic SHA-256 provenance hashes for the 110,592-byte physical binary room blocks loaded from the 300 GB Host8 engine.
 > - [HOST8_LOCAL_PHYSICS_BENCHMARK_TIMINGS.md](HOST8_LOCAL_PHYSICS_BENCHMARK_TIMINGS.md): Detailed local physical execution benchmarks, methodology, and measured timings on the physical 300 GB drive (`D:\ASOLARIA-HOST8-ROOMS-300G`), including all 375 sector heads (263.2s), deep offset 50,000,000 rooms (3.0s), and baseline regressions.
 > - [`host8_375_sector_physics_regression.csv`](host8_375_sector_physics_regression.csv): Full 375-sector physics simulation receipts (5,184,000 rooms evolved, 48 forward ticks, 16 Loschmidt reverse ticks, 0 mismatches across 139,968,000 trits).
+> - [HOST8_STAGE_D_PROVENANCE_AND_BOUNDARIES.md](HOST8_STAGE_D_PROVENANCE_AND_BOUNDARIES.md): Stage D technical report establishing strict 4-way authentication provenance (`PINNED_MATCH`, `HASH_RECORDED`, `HASH_MISMATCH`, `READ_FAILURE`), exact Mode A boundary overlap accounting (2,816 rooms shared), and negative fail-closed tests.
+> - [`host8_375_sector_physics_provenance_v2.csv`](host8_375_sector_physics_provenance_v2.csv): Versioned provenance v2 receipt distinguishing 3 pinned references (`PINNED_MATCH`) from 372 physical records (`HASH_RECORDED`), with 100% `VERIFIED` physics status.
+> - [`host8_mode_a_boundary_results.csv`](host8_mode_a_boundary_results.csv): Mode A boundary execution receipts across Sectors 000, 187, and 374, proving exact 2,816-room bit-match between Windows 7232 and 7233.
+> - [`test_host8_receipts_and_boundaries.py`](test_host8_receipts_and_boundaries.py): Automated regression test suite (10/10 tests pass in 0.77s) validating historical receipts, provenance semantics, boundary arithmetic, and negative fail-closed security.
 
 ---
 
@@ -168,22 +172,31 @@ To verify that physical sectors decode and evolve cleanly deep inside the volume
 - **Test Coordinates**: Sectors 000, 187, and 374 at **room offset 50,000,000** ($400\text{ MB}$ deep into each $800\text{ MB}$ file).
 - **Results**: Maximal Shannon entropy ($S \approx 1.09861$), $dE < 10^{-12}$, and $0$ Loschmidt mismatches across all $1,119,744$ trits. Execution time: **3.0 seconds**.
 
+#### Mode A Sector Boundary Window & Overlap Execution:
+To cleanly process the final unaligned records ($11,008$ rooms) of each $100,000,000$-room sector without artificial zero-padding:
+- **Strategy**: Window 7,233 (final window) spans rooms $[99,986,176, 100,000,000)$ ($799.89\text{ MB}$ to $800.00\text{ MB}$).
+- **Overlap**: Shares exactly $\mathbf{2,816\text{ rooms}}$ ($22,528\text{ bytes}$) with Window 7,232 ($[99,975,168, 99,988,992)$), verified bit-for-bit with **0 differences across all $76,032$ trits** on sectors 000, 187, and 374.
+- **Coverage**: Adds $\mathbf{11,008\text{ unique rooms}}$, achieving complete $100.000\%$ sector coverage ($100,000,000$ rooms / $800\text{ MB}$).
+- **Receipts**: Exported to [`host8_mode_a_boundary_results.csv`](host8_mode_a_boundary_results.csv).
+
 ---
 
 ## 4. How-To Guide & Automated Reproduction
 
 ### Prerequisites
 - C++17 compliant compiler (`g++`, `clang++`, or `MSVC`)
-- Python 3.8+ (standard libraries only)
+- Python 3.8+ (standard libraries only, `pytest` for test harness)
 
 ### Execution Commands & Local Timings
 
 | Benchmark Command | Purpose & Description | Measured Local Time |
 |---|---|:---:|
 | `python reproduce.py` | Master reproduction harness (5 simulation arms, acoustic fits, multi-shell transport, independent audit checkers) | **111.0 s (~1.85 min)** |
+| `pytest -v test_host8_receipts_and_boundaries.py` | Stage D automated regression suite (10/10 tests: receipt validation, negative fail-closed security, boundary math) | **0.77 s** |
 | `.\asolaria_equilibrium_suite.exe --host8-375 --host8-dir "D:/ASOLARIA-HOST8-ROOMS-300G"` | All 375 sector heads (5.184M rooms, 139.9M trits, 48+16 ticks) | **263.2 s (~4.39 min)** |
+| `.\asolaria_equilibrium_suite.exe --host8-boundary-test --host8-dir "D:/ASOLARIA-HOST8-ROOMS-300G"` | Mode A boundary test: Windows 7232 & 7233 overlap verification (2,816 rooms bit-match) on sectors 000, 187, 374 | **3.5 s** |
 | `.\asolaria_equilibrium_suite.exe --host8-sectors 0,187,374 --host8-offset 50000000 --host8-dir "D:/ASOLARIA-HOST8-ROOMS-300G"` | Deep offset (50M rooms / 400 MB deep, 41.4k rooms, 48+16 ticks) | **3.0 s** |
-| `.\asolaria_equilibrium_suite.exe --host8-strict --host8-dir "D:/ASOLARIA-HOST8-ROOMS-300G"` | Standard baseline (Sectors 000, 187, 374 at offset 0, 48+16 ticks) | **3.0 s** |
+| `.\asolaria_equilibrium_suite.exe --host8-strict --host8-dir "D:/ASOLARIA-HOST8-ROOMS-300G"` | Standard baseline (Sectors 000, 187, 374 at offset 0, 48+16 ticks) | **2.1 s** |
 
 ### Automated Validation Suite
 Execute the master validation suite:

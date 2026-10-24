@@ -18,8 +18,10 @@
 | `host8_sector_000_results.csv` | `fa1a4f1fe7f819dfc63b6ef3c14f46d95a4838800f6f80db947cf36583e53b0a` |
 | `host8_sector_187_results.csv` | `f3aee636a0bd8bd84797176e7c20fae114d1993f497f07cb4845ff2867d6d12c` |
 | `host8_sector_374_results.csv` | `c23b0ec294365c85192e6bddc5025ffff16631285d2902e30511df3f789c2fe6` |
-| `host8_verification_provenance.csv` | `c827fc9972069a72e5edb1fbf2e884a68a2e7bb043fce9b3091de1a6a92f2e64` |
+| `host8_verification_provenance.csv` | `d98b6169286f54c535de91748bd4eab47a9718a1a8301ff2d4b7148b557de790` |
 | `host8_matched_k_results.csv` | `63b79dbdb741735b234053528e63868bcb2224f87e7d3ae6f7955099cd04b531` |
 | `host8_linear_response_results.csv` | `d99074a347b969ce2f567f5a73006aa6dff1ac97fdb86455e0063c906773e594` |
 | `host8_linear_response_timeseries.csv` | `6a6ed6795c01383074c55abee12391a46b785658499d2f08511e24674bcfcdb0` |
 | `host8_375_sector_physics_regression.csv` | `1ba45e2d4ea26a8bdf3b2c4a2bd5708551f79e604825c46c765e6a8c2916502e` |
+| `host8_375_sector_physics_provenance_v2.csv` | `51034733e1543ad5e6e67adf573c9a3b1a1cf1226d40352adb4c22c801265b02` |
+| `host8_mode_a_boundary_results.csv` | `e6fef8fa226f90549ec8628a012bbe0c69665a07a572cb049e3f39eb3b15b5f5` |

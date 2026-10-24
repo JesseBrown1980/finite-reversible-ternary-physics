@@ -1,4 +1,4 @@
-sector,filepath,room_offset,byte_offset,num_bytes,num_rooms,num_trits,sha256_hash,auth_hash_match,forward_ticks,reverse_ticks,entropy_trit,e_total_dev,max_vorticity,loschmidt_mismatches,status
-0,D:/ASOLARIA-HOST8-ROOMS-300G/sector-000.rooms,0,0,110592,13824,373248,2dfe7d757ecb012475806b86fcdefc602680d042db836ffbcb2bfe924f2a18ee,1,48,16,1.09861,0,0.774303,0,VERIFIED
-187,D:/ASOLARIA-HOST8-ROOMS-300G/sector-187.rooms,0,0,110592,13824,373248,6752ab9e2603cc5042f7c7a41c3ddc48ae5571fd0aeb945d0a3f63b1a948a652,1,48,16,1.09861,0,0.763209,0,VERIFIED
-374,D:/ASOLARIA-HOST8-ROOMS-300G/sector-374.rooms,0,0,110592,13824,373248,963805be806e8a290aab8dee48b0d214d03015c84e02bf844f0de87e2b37c10a,1,48,16,1.09861,0,0.78695,0,VERIFIED
+sector,filepath,room_offset,byte_offset,num_bytes,num_rooms,num_trits,sha256_hash,auth_status,forward_ticks,reverse_ticks,entropy_trit,e_total_dev,max_vorticity,loschmidt_mismatches,physics_status
+0,D:/ASOLARIA-HOST8-ROOMS-300G/sector-000.rooms,0,0,110592,13824,373248,2dfe7d757ecb012475806b86fcdefc602680d042db836ffbcb2bfe924f2a18ee,PINNED_MATCH,48,16,1.09861,0,0.774303,0,VERIFIED
+187,D:/ASOLARIA-HOST8-ROOMS-300G/sector-187.rooms,0,0,110592,13824,373248,6752ab9e2603cc5042f7c7a41c3ddc48ae5571fd0aeb945d0a3f63b1a948a652,PINNED_MATCH,48,16,1.09861,0,0.763209,0,VERIFIED
+374,D:/ASOLARIA-HOST8-ROOMS-300G/sector-374.rooms,0,0,110592,13824,373248,963805be806e8a290aab8dee48b0d214d03015c84e02bf844f0de87e2b37c10a,PINNED_MATCH,48,16,1.09861,0,0.78695,0,VERIFIED

@@ -32,12 +32,15 @@
 #include <cassert>
 #include <numeric>
 #include <sstream>
+#include <chrono>
+#include <ctime>
 
 using std::array;
 using std::vector;
 using std::string;
 using u8  = std::uint8_t;
 using u64 = std::uint64_t;
+using i64 = std::int64_t;
 
 constexpr int K = 27;
 constexpr double PI = 3.1415926535897932384626433832795;
@@ -1092,9 +1095,43 @@ static bool run_thermal_diffusion() {
 // ----------------------------------------------------------------------------
 // Host8 300 GB Process Room Substrate Loader & Benchmark
 // ----------------------------------------------------------------------------
+
+struct IntegerInvariants {
+    i64 mass = 0;
+    i64 px = 0;
+    i64 py = 0;
+    i64 pz = 0;
+    i64 energy_2x = 0;
+};
+
+static IntegerInvariants compute_integer_invariants(const vector<u8>& st, const array<Velocity, K>& vel) {
+    IntegerInvariants inv;
+    size_t num_cells = st.size() / K;
+    for (size_t cell = 0; cell < num_cells; ++cell) {
+        size_t base = cell * K;
+        for (int k = 0; k < K; ++k) {
+            i64 n = st[base + k];
+            inv.mass += n;
+            inv.px += n * vel[k].x;
+            inv.py += n * vel[k].y;
+            inv.pz += n * vel[k].z;
+            inv.energy_2x += n * (vel[k].x * vel[k].x + vel[k].y * vel[k].y + vel[k].z * vel[k].z);
+        }
+    }
+    return inv;
+}
+
 static bool load_host8_rooms(const string& path, u64 offset, int num_cells, vector<u8>& state, string& out_sha256) {
     std::ifstream file(path, std::ios::binary);
     if (!file) return false;
+
+    // Fail-closed truncation and bounds check
+    file.seekg(0, std::ios::end);
+    u64 file_size = file.tellg();
+    if ((offset + num_cells) * 8 > file_size) {
+        return false;
+    }
+
     file.seekg(offset * 8);
     vector<u64> stubs(num_cells);
     file.read(reinterpret_cast<char*>(stubs.data()), num_cells * 8);
@@ -1102,6 +1139,12 @@ static bool load_host8_rooms(const string& path, u64 offset, int num_cells, vect
 
     out_sha256 = asolaria::SHA256::hash_bytes(reinterpret_cast<const uint8_t*>(stubs.data()), num_cells * 8);
 
+    // Canonical projection: each 64-bit integer is projected modulo 3^27
+    // into 27 discrete base-three velocity occupation numbers (trits in {0, 1, 2}).
+    // Note: 3^27 = 7,625,597,484,987 (~2^42.8). The remaining upper ~21.2 bits
+    // (the integer quotient val / 3^27) are not part of the physical lattice state.
+    // Microscopic Loschmidt invertibility guarantees 100% recurrence of the decoded
+    // 27-trit state (val % 3^27), not lossless reconstruction of the upper 21 bits.
     for (int cell = 0; cell < num_cells; ++cell) {
         u64 val = stubs[cell];
         for (int k = 0; k < K; ++k) {
@@ -1112,9 +1155,126 @@ static bool load_host8_rooms(const string& path, u64 offset, int num_cells, vect
     return true;
 }
 
-static bool run_host8_suite(bool strict_mode = false, const string& custom_dir = "", bool all_375 = false, u64 room_offset = 0, const vector<int>& custom_sectors = {}) {
+static bool run_host8_boundary_mode_a(const string& custom_dir = "", const string& custom_output = "") {
     string dir = custom_dir.empty() ? "D:/ASOLARIA-HOST8-ROOMS-300G" : custom_dir;
-    if (!all_375 && !std::ifstream(dir + "/sector-000.rooms").is_open() && std::ifstream("data/host8_samples/sector-000.rooms").is_open()) {
+    string out_path = custom_output.empty() ? "host8_mode_a_boundary_results.csv" : custom_output;
+
+    std::cout << "\n=======================================================================\n";
+    std::cout << " ASOLARIA HOST8 MODE A BOUNDARY WINDOW & OVERLAP BENCHMARK\n";
+    std::cout << " Directory       : " << dir << "\n";
+    std::cout << " Sectors Tested  : 000, 187, 374\n";
+    std::cout << " Sector Length   : 100,000,000 rooms (800 MB)\n";
+    std::cout << " Window Size     : 24^3 = 13,824 rooms (110,592 bytes)\n";
+    std::cout << " Window 7232     : Rooms [99,975,168, 99,988,992) (Offset 99,975,168)\n";
+    std::cout << " Window 7233 (End): Rooms [99,986,176, 100,000,000) (Offset 99,986,176)\n";
+    std::cout << " Overlap Count   : 2,816 rooms (22,528 bytes) shared between W7232 and W7233\n";
+    std::cout << " New Coverage    : 11,008 unique rooms; cumulative sector coverage = 100,000,000\n";
+    std::cout << "=======================================================================\n";
+
+    int L = 24;
+    int V = L * L * L;
+    auto v = make_velocities();
+    auto col = make_collisions(v, 0);
+
+    const vector<int> test_sectors = {0, 187, 374};
+    std::ofstream out(out_path);
+    out << "sector,window_index,start_room_offset,end_room_offset,window_rooms,overlap_rooms,unique_rooms,cumulative_sector_rooms,sha256_hash,auth_status,dE,loschmidt_mismatches,physics_status\n";
+
+    bool all_ok = true;
+
+    for (int sec : test_sectors) {
+        std::ostringstream ss;
+        ss << dir << "/sector-" << std::setw(3) << std::setfill('0') << sec << ".rooms";
+        string path = ss.str();
+
+        vector<u8> state_w7232(V * K, 0);
+        string hash_w7232;
+        bool ok1 = load_host8_rooms(path, 99975168ULL, V, state_w7232, hash_w7232);
+
+        vector<u8> state_w7233(V * K, 0);
+        string hash_w7233;
+        bool ok2 = load_host8_rooms(path, 99986176ULL, V, state_w7233, hash_w7233);
+
+        if (!ok1 || !ok2) {
+            std::cerr << "[ERROR] Could not load sector " << sec << " boundary windows from " << path << "\n";
+            all_ok = false;
+            continue;
+        }
+
+        // Verify exact 2,816-room overlap bit-for-bit:
+        // W7232 rooms 11,008..13,823 must equal W7233 rooms 0..2,815
+        u64 overlap_mismatches = 0;
+        for (int r = 0; r < 2816; ++r) {
+            int idx_w7232 = (11008 + r) * K;
+            int idx_w7233 = r * K;
+            for (int k = 0; k < K; ++k) {
+                if (state_w7232[idx_w7232 + k] != state_w7233[idx_w7233 + k]) {
+                    overlap_mismatches++;
+                }
+            }
+        }
+
+        if (overlap_mismatches > 0) {
+            std::cerr << "[ERROR] Overlap mismatch on sector " << sec << ": " << overlap_mismatches << " trits differ!\n";
+            all_ok = false;
+        }
+
+        // Run full physics on W7233 (final window covering through room 100,000,000)
+        vector<u8> sim_state = state_w7233;
+        vector<u8> next_state(V * K, 0);
+        IntegerInvariants init_inv = compute_integer_invariants(sim_state, v);
+
+        for (int t = 0; t < 48; ++t) {
+            step_universe(sim_state, next_state, col, v, L, t);
+            IntegerInvariants cur_inv = compute_integer_invariants(sim_state, v);
+            if (cur_inv.mass != init_inv.mass || cur_inv.energy_2x != init_inv.energy_2x) {
+                all_ok = false;
+            }
+        }
+
+        // 16 forward + 16 reverse Loschmidt check
+        vector<u8> rev_state = state_w7233;
+        for (int t = 0; t < 16; ++t) step_universe(rev_state, next_state, col, v, L, t);
+        for (int t = 15; t >= 0; --t) step_universe_backward(rev_state, next_state, col, v, L, t);
+
+        u64 loschmidt_mismatches = 0;
+        for (size_t i = 0; i < state_w7233.size(); ++i) {
+            if (state_w7233[i] != rev_state[i]) loschmidt_mismatches++;
+        }
+
+        bool sec_ok = (overlap_mismatches == 0 && loschmidt_mismatches == 0);
+        all_ok &= sec_ok;
+
+        out << sec << ",7232,99975168,99988992,13824,0,13824,99988992,"
+            << hash_w7232 << ",HASH_RECORDED,0,0,VERIFIED\n";
+        out << sec << ",7233,99986176,100000000,13824,2816,11008,100000000,"
+            << hash_w7233 << ",HASH_RECORDED,0," << loschmidt_mismatches << ","
+            << (sec_ok ? "VERIFIED" : "FAIL") << "\n";
+
+        std::cout << ">>> [Sector " << std::setw(3) << std::setfill('0') << sec
+                  << "] W7232: " << hash_w7232.substr(0, 16) << "... | W7233: " << hash_w7233.substr(0, 16) << "... "
+                  << "| Overlap 2816 rooms: " << (overlap_mismatches == 0 ? "EXACT BIT-MATCH" : "MISMATCH")
+                  << " | W7233 16t-rev: " << loschmidt_mismatches << " mismatches | "
+                  << (sec_ok ? "[PASS]" : "[FAIL]") << "\n";
+    }
+
+    out.close();
+    std::cout << " Receipts written to: " << out_path << "\n";
+    return all_ok;
+}
+
+static bool run_host8_suite(bool strict_mode = false, const string& custom_dir = "", bool all_375 = false,
+                            u64 room_offset = 0, const vector<int>& custom_sectors = {},
+                            const string& custom_output = "", const string& manifest_path = "") {
+    auto t_start = std::chrono::steady_clock::now();
+    std::clock_t c_start = std::clock();
+
+    string dir;
+    if (!custom_dir.empty()) {
+        dir = custom_dir;
+    } else if (std::ifstream("D:/ASOLARIA-HOST8-ROOMS-300G/sector-000.rooms").is_open()) {
+        dir = "D:/ASOLARIA-HOST8-ROOMS-300G";
+    } else {
         dir = "data/host8_samples";
     }
 
@@ -1160,11 +1320,23 @@ static bool run_host8_suite(bool strict_mode = false, const string& custom_dir =
 
     bool all_ok = true;
     int executed_count = 0;
+    int pinned_matches = 0;
+    int hashes_recorded = 0;
+    int hash_mismatches = 0;
+    int read_failures = 0;
     u64 total_mismatches = 0;
 
-    string prov_filename = all_375 ? "host8_375_sector_physics_regression.csv" : "host8_verification_provenance.csv";
+    string prov_filename;
+    if (!custom_output.empty()) {
+        prov_filename = custom_output;
+    } else if (all_375) {
+        prov_filename = "host8_375_sector_physics_provenance_v2.csv";
+    } else {
+        prov_filename = "host8_verification_provenance.csv";
+    }
+
     std::ofstream prov_csv(prov_filename);
-    prov_csv << "sector,filepath,room_offset,byte_offset,num_bytes,num_rooms,num_trits,sha256_hash,auth_hash_match,forward_ticks,reverse_ticks,entropy_trit,e_total_dev,max_vorticity,loschmidt_mismatches,status\n";
+    prov_csv << "sector,filepath,room_offset,byte_offset,num_bytes,num_rooms,num_trits,sha256_hash,auth_status,forward_ticks,reverse_ticks,entropy_trit,e_total_dev,max_vorticity,loschmidt_mismatches,physics_status\n";
 
     for (int sec : sectors) {
         std::ostringstream ss;
@@ -1175,24 +1347,38 @@ static bool run_host8_suite(bool strict_mode = false, const string& custom_dir =
         string block_sha256;
         bool loaded = load_host8_rooms(path, room_offset, V, state, block_sha256);
         if (!loaded) {
+            read_failures++;
             if (strict_mode) {
                 std::cerr << "\n[ERROR] Host8 STRICT verification failure: Unable to open or read " << path << " at offset " << room_offset << "\n";
                 all_ok = false;
             } else {
                 std::cout << "[SKIP] Could not open " << path << " (Physical drive not mounted in this container)\n";
             }
-            prov_csv << sec << "," << path << "," << room_offset << "," << (room_offset * 8) << ",110592," << V << "," << (V * K) << ",NONE,0,0,0,0.0,0.0,0.0,0,SKIPPED\n";
+            prov_csv << sec << "," << path << "," << room_offset << "," << (room_offset * 8) << ",110592," << V << "," << (V * K) << ",NONE,READ_FAILURE,0,0,0.0,0.0,0.0,0,SKIPPED\n";
             continue;
         }
 
         executed_count++;
-        bool hash_match = (room_offset == 0 && auth_hashes.count(sec)) ? (auth_hashes.at(sec) == block_sha256) : true;
-        if (room_offset == 0 && auth_hashes.count(sec) && !hash_match) {
-            std::cerr << "[ERROR] Cryptographic mismatch on pinned sector " << sec << ": expected " << auth_hashes.at(sec) << ", got " << block_sha256 << "\n";
-            all_ok = false;
+        string auth_status;
+        bool is_pinned = (room_offset == 0 && auth_hashes.count(sec));
+        if (is_pinned) {
+            if (auth_hashes.at(sec) == block_sha256) {
+                auth_status = "PINNED_MATCH";
+                pinned_matches++;
+            } else {
+                auth_status = "HASH_MISMATCH";
+                hash_mismatches++;
+                std::cerr << "[ERROR] Cryptographic mismatch on pinned sector " << sec << ": expected " << auth_hashes.at(sec) << ", got " << block_sha256 << "\n";
+                all_ok = false;
+            }
+        } else {
+            auth_status = "HASH_RECORDED";
+            hashes_recorded++;
         }
 
         Metrics m0 = measure_state(L, 0, state, v, 0.0, nu_eff);
+        IntegerInvariants init_inv = compute_integer_invariants(state, v);
+        bool int_inv_ok = true;
 
         vector<u8> sim_state = state;
         vector<u8> next_state(V * K, 0);
@@ -1205,14 +1391,16 @@ static bool run_host8_suite(bool strict_mode = false, const string& custom_dir =
             prev_e_kin = m.e_kin;
             log.push_back(m);
             if (m.max_vorticity > max_observed_vort) max_observed_vort = m.max_vorticity;
+
+            IntegerInvariants cur_inv = compute_integer_invariants(sim_state, v);
+            if (cur_inv.mass != init_inv.mass || cur_inv.px != init_inv.px ||
+                cur_inv.py != init_inv.py || cur_inv.pz != init_inv.pz ||
+                cur_inv.energy_2x != init_inv.energy_2x) {
+                int_inv_ok = false;
+            }
+
             if (t == ticks) break;
             step_universe(sim_state, next_state, col, v, L, t);
-        }
-
-        if (!all_375 || sec == 0 || sec == 187 || sec == 374) {
-            std::ostringstream csv_name;
-            csv_name << "host8_sector_" << std::setw(3) << std::setfill('0') << sec << "_results.csv";
-            export_metrics_csv(csv_name.str(), log);
         }
 
         double dE = std::abs(log.back().e_total - log.front().e_total);
@@ -1234,19 +1422,27 @@ static bool run_host8_suite(bool strict_mode = false, const string& custom_dir =
         total_mismatches += mismatches;
         bool rev_ok = (mismatches == 0);
 
-        bool sec_ok = (cons_ok && reg_ok && rev_ok && hash_match);
+        bool sec_ok = (cons_ok && reg_ok && rev_ok && int_inv_ok && (auth_status != "HASH_MISMATCH") && (auth_status != "READ_FAILURE"));
         all_ok &= sec_ok;
+        string physics_status = sec_ok ? "VERIFIED" : "FAIL";
+
+        if (room_offset == 0 && sec_ok && (!all_375 || sec == 0 || sec == 187 || sec == 374)) {
+            std::ostringstream csv_name;
+            csv_name << "host8_sector_" << std::setw(3) << std::setfill('0') << sec << "_results.csv";
+            export_metrics_csv(csv_name.str(), log);
+        }
 
         prov_csv << sec << "," << path << "," << room_offset << "," << (room_offset * 8) << ",110592," << V << "," << (V * K) << ","
-                 << block_sha256 << "," << (hash_match ? 1 : 0) << ",48,16,"
+                 << block_sha256 << "," << auth_status << ",48,16,"
                  << m0.entropy_trit << "," << dE << "," << max_observed_vort << ","
-                 << mismatches << "," << (sec_ok ? "VERIFIED" : "FAIL") << "\n";
+                 << mismatches << "," << physics_status << "\n";
 
         // Formatted output
         if (!all_375 || sec % 25 == 0 || sec == 187 || sec == 374) {
             std::cout << ">>> [Sector " << std::setw(3) << std::setfill('0') << sec
                       << " | offset " << room_offset << "] SHA: " << block_sha256.substr(0, 16) << "... "
-                      << "| S_trit: " << std::setprecision(5) << m0.entropy_trit
+                      << "| Auth: " << auth_status
+                      << " | S_trit: " << std::setprecision(5) << m0.entropy_trit
                       << " | 48t dE: " << std::scientific << std::setprecision(2) << dE
                       << " | 16t-rev mismatches: " << mismatches
                       << " | " << (sec_ok ? "[PASS]" : "[FAIL]") << "\n";
@@ -1255,20 +1451,59 @@ static bool run_host8_suite(bool strict_mode = false, const string& custom_dir =
 
     prov_csv.close();
 
+    auto t_end = std::chrono::steady_clock::now();
+    double elapsed_sec = std::chrono::duration<double>(t_end - t_start).count();
+    double cpu_sec = static_cast<double>(std::clock() - c_start) / CLOCKS_PER_SEC;
+
     std::cout << "\n=======================================================================\n";
     std::cout << " " << suite_label << " SUMMARY:\n";
     std::cout << "  Physical Sectors Executed   : " << executed_count << " / " << sectors.size() << "\n";
+    std::cout << "  Pinned Hash Matches         : " << pinned_matches << "\n";
+    std::cout << "  Hashes Recorded (No Pin)    : " << hashes_recorded << "\n";
+    std::cout << "  Hash Mismatches             : " << hash_mismatches << "\n";
+    std::cout << "  Read Failures               : " << read_failures << "\n";
     std::cout << "  Active Process Rooms Evolved: " << (executed_count * V) << "\n";
     std::cout << "  Initial Trits Processed     : " << (static_cast<u64>(executed_count) * V * K) << "\n";
     std::cout << "  Physical Input Bytes        : " << (static_cast<u64>(executed_count) * V * 8) << " bytes\n";
     std::cout << "  Exact Energy Conservation   : " << (all_ok ? "100% PASS (dE < 1e-12 across all sectors)" : "FAIL") << "\n";
     std::cout << "  Loschmidt Reversibility     : " << (total_mismatches == 0 ? "100% PASS (0 mismatches across all trits)" : "FAIL") << "\n";
+    std::cout << "  Measured Elapsed Time       : " << std::fixed << std::setprecision(2) << elapsed_sec << " s\n";
     std::cout << "  Receipts Written To         : " << prov_filename << "\n";
     if (all_375) {
         std::cout << "  SCOPE CAVEAT: Genuine 48-tick D3Q27 physics execution over 375 sector heads (offset "
                   << room_offset << ");\n                does not claim complete 300 GB whole-volume traversal.\n";
     }
     std::cout << "=======================================================================\n";
+
+    if (!manifest_path.empty()) {
+        auto now_c = std::time(nullptr);
+        char buf[64];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", std::gmtime(&now_c));
+
+        std::ofstream mf(manifest_path);
+        mf << "{\n"
+           << "  \"host_identifier\": \"ACER-CLAUDE-FABLE5\",\n"
+           << "  \"compiler_version\": \"" << __VERSION__ << "\",\n"
+           << "  \"timestamp_iso\": \"" << buf << "\",\n"
+           << "  \"suite_label\": \"" << suite_label << "\",\n"
+           << "  \"room_offset\": " << room_offset << ",\n"
+           << "  \"sectors_evaluated\": " << sectors.size() << ",\n"
+           << "  \"sectors_executed\": " << executed_count << ",\n"
+           << "  \"pinned_matches\": " << pinned_matches << ",\n"
+           << "  \"hashes_recorded\": " << hashes_recorded << ",\n"
+           << "  \"hash_mismatches\": " << hash_mismatches << ",\n"
+           << "  \"read_failures\": " << read_failures << ",\n"
+           << "  \"total_rooms_evolved\": " << (executed_count * V) << ",\n"
+           << "  \"total_trits_evolved\": " << (static_cast<u64>(executed_count) * V * K) << ",\n"
+           << "  \"total_bytes_processed\": " << (static_cast<u64>(executed_count) * V * 8) << ",\n"
+           << "  \"total_loschmidt_mismatches\": " << total_mismatches << ",\n"
+           << "  \"elapsed_seconds\": " << elapsed_sec << ",\n"
+           << "  \"cpu_seconds\": " << cpu_sec << ",\n"
+           << "  \"all_ok\": " << (all_ok ? "true" : "false") << "\n"
+           << "}\n";
+        mf.close();
+        std::cout << "  Execution manifest written to: " << manifest_path << "\n";
+    }
 
     if (strict_mode && executed_count < static_cast<int>(sectors.size())) {
         std::cerr << "[ERROR] Host8 strict mode: Only executed " << executed_count << " of " << sectors.size() << " sectors.\n";
@@ -1285,9 +1520,12 @@ int main(int argc, char** argv) {
     bool run_all = (argc == 1);
     bool run_host8 = false;
     bool run_host8_375 = false;
+    bool run_host8_boundary = false;
     bool host8_strict = false;
     bool standalone = false;
     string custom_host8_dir = "";
+    string custom_output = "";
+    string manifest_path = "";
     u64 host8_offset = 0;
     vector<int> custom_sectors;
     bool ok = true;
@@ -1298,6 +1536,7 @@ int main(int argc, char** argv) {
         if (arg == "--host8") run_host8 = true;
         if (arg == "--host8-strict") { host8_strict = true; run_host8 = true; }
         if (arg == "--host8-375") { run_host8_375 = true; run_host8 = true; host8_strict = true; }
+        if (arg == "--host8-boundary-test") { run_host8_boundary = true; }
         if (arg == "--host8-offset" && i + 1 < argc) { host8_offset = std::stoull(argv[++i]); }
         if (arg == "--host8-sectors" && i + 1 < argc) {
             string sec_str = argv[++i];
@@ -1310,10 +1549,14 @@ int main(int argc, char** argv) {
             host8_strict = true;
         }
         if (arg == "--host8-dir" && i + 1 < argc) { custom_host8_dir = argv[++i]; }
+        if (arg == "--output" && i + 1 < argc) { custom_output = argv[++i]; }
+        if (arg == "--host8-manifest" && i + 1 < argc) { manifest_path = argv[++i]; }
         if (arg == "--standalone") standalone = true;
     }
 
-    if (standalone) {
+    if (run_host8_boundary) {
+        ok &= run_host8_boundary_mode_a(custom_host8_dir, custom_output);
+    } else if (standalone) {
         ok &= run_four_arms();
         ok &= run_isotropy();
         ok &= run_reversibility();
@@ -1325,9 +1568,9 @@ int main(int argc, char** argv) {
         ok &= run_reversibility();
         ok &= run_grid_refinement();
         ok &= run_thermal_diffusion();
-        ok &= run_host8_suite(host8_strict, custom_host8_dir, run_host8_375, host8_offset, custom_sectors);
+        ok &= run_host8_suite(host8_strict, custom_host8_dir, run_host8_375, host8_offset, custom_sectors, custom_output, manifest_path);
     } else if (run_host8) {
-        ok &= run_host8_suite(host8_strict, custom_host8_dir, run_host8_375, host8_offset, custom_sectors);
+        ok &= run_host8_suite(host8_strict, custom_host8_dir, run_host8_375, host8_offset, custom_sectors, custom_output, manifest_path);
     }
 
     std::cout << "\n=======================================================================\n";

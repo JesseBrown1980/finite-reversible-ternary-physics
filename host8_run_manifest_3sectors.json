@@ -1,0 +1,20 @@
+{
+  "host_identifier": "ACER-CLAUDE-FABLE5",
+  "compiler_version": "16.2.0",
+  "timestamp_iso": "2026-10-24T16:22:26Z",
+  "suite_label": "HOST8_AUTHENTICATED_THREE_SECTOR_REGRESSION",
+  "room_offset": 0,
+  "sectors_evaluated": 3,
+  "sectors_executed": 3,
+  "pinned_matches": 3,
+  "hashes_recorded": 0,
+  "hash_mismatches": 0,
+  "read_failures": 0,
+  "total_rooms_evolved": 41472,
+  "total_trits_evolved": 1119744,
+  "total_bytes_processed": 331776,
+  "total_loschmidt_mismatches": 0,
+  "elapsed_seconds": 2.07302,
+  "cpu_seconds": 2.073,
+  "all_ok": true
+}

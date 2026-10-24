@@ -122,22 +122,36 @@ Across all three sectors:
 2. **Global Regularity**: Maximum local vorticity $\|\mathbf{\omega}\|_{L^\infty} \in [0.763, 0.787] \ll 3.464$ unconditionally bounded without singularity.
 3. **Loschmidt Invertibility on Live Host8 Memory**: Evolving 16 ticks forward and 16 ticks backward restored all $373,248$ trits bit-for-bit with **0 mismatches** (100% exact recurrence).
 
-### 3.6 Matched-$|\mathbf{k}|$ Directional Acoustic Dispersion (Arm 5 vs Arm 3)
+### 3.6 Matched-$|\mathbf{k}|$ Directional Acoustic Dispersion & Host 8 300 GB Validation
 To isolate true directional lattice anisotropy independently of wavelength differences, we directly compare acoustic propagation along two wavevectors with **identically matched wavenumber magnitude**:
 $$\mathbf{k}_1 = (3, 0, 0), \qquad \mathbf{k}_2 = (2, 2, 1)$$
 where both wavevectors satisfy $|\mathbf{k}|^2 = 9 \times (2\pi/L)^2$.
-Using the QR variable-projection nonlinear damped harmonic estimator (`acoustic_damped_fit.h`), wave parameters were measured across grid sizes $L=24$ and $L=48$:
+Following independent audit recommendations, we execute small-signal linear acoustic perturbations ($\delta \rho \in [-1, +1]$, density in $[26, 28]$, zero net momentum) across grid sizes $L=24$ (60 ticks) and $L=48$ (96 ticks), comparing the **Standard 288-Gate Arm 3 Baseline** (32 gates/cell/tick) against the **Exact $O_h$-Equivariant Inter-Shell Arm 5**:
 
-| Grid | Collision Operator | Axis $(3,0,0)$ $c_s$ | Oblique $(2,2,1)$ $c_s$ | Directional Anisotropy | Fit Quality $R^2$ | Anisotropy Reduction |
+| Grid | Collision Operator | Axis $(3,0,0)$ $c_s$ | Oblique $(2,2,1)$ $c_s$ | Directional Anisotropy | Fit Quality $R^2$ | Observed Cycles ($\ge 3$ Criterion) |
 |:---:|:---|:---:|:---:|:---:|:---:|:---:|
-| **$L=24$** | Legacy Kernel (Arm 3) | $1.00583$ | $0.32707$ | **$101.85\%$** | $0.977 / 0.586$ | Baseline |
-| **$L=24$** | Equivariant Inter-Shell (Arm 5) | $1.00315$ | $0.74295$ | **$29.80\%$** | $0.921 / 0.704$ | **$3.42\times$ Reduction** |
-| **$L=48$** | Legacy Kernel (Arm 3) | $1.00719$ | $0.10233$ | **$163.11\%$** | $0.986 / 0.718$ | Baseline (Oblique mode stalls) |
-| **$L=48$** | Equivariant Inter-Shell (Arm 5) | $1.00426$ | $0.72535$ | **$32.25\%$** | $0.945 / 0.887$ | **$5.06\times$ Reduction** |
+| **$L=24$** | Standard Arm 3 (288 Gates) | $0.91342$ | $0.90748$ | **$0.65\%$** | $0.759 / 0.712$ | $6.85 / 6.81$ (**PASS**) |
+| **$L=24$** | Equivariant Inter-Shell (Arm 5) | $0.33405$ | $0.60665$ | **$57.96\%$** | $0.972 / 0.734$ | $2.51 / 4.55$ ($1\times$ FAIL) |
+| **$L=48$** | Standard Arm 3 (288 Gates) | $0.89950$ | $0.93544$ | **$3.92\%$** | $0.973 / 0.939$ | $5.40 / 5.61$ (**PASS**) |
+| **$L=48$** | Equivariant Inter-Shell (Arm 5) | $0.27442$ | $0.74267$ | **$92.08\%$** | $0.734 / 0.689$ | $1.65 / 4.46$ ($1\times$ FAIL) |
 
-**Physical Implications**:
-- In the legacy sequential kernel (Arm 3), oblique acoustic modes suffer severe coordinate pinning: at $L=48$, the oblique wave completes only $0.38$ cycles and measured speed collapses ($c_s \to 0.1023$), resulting in $163.11\%$ anisotropy.
-- In the exact $O_h$-equivariant inter-shell kernel (Arm 5), the oblique wave propagates cleanly ($2.72$ completed cycles, $R^2 = 0.8865$), yielding a **$5.06\times$ reduction in directional anisotropy** at matched wavenumber $|\mathbf{k}| = 0.3927$. All results are exported to [`arm5_matched_k_dispersion_results.csv`](arm5_matched_k_dispersion_results.csv).
+#### Scientific Findings & Symmetry Boundaries:
+1. **Standard 288-Gate Baseline Performance**: In the true 288-gate Arm 3 simulation, rapid mixing across all 288 gates yields excellent directional acoustic isotropy (**$3.92\%$ anisotropy at $L=48$**, with both modes completing $>5.4$ cycles and $R^2 > 0.93$).
+2. **Discrete $O_h$ Equivariance vs Continuous $SO(3)$ Isotropy**:
+   - Exact discrete cubic equivariance ($\boxed{F(Rs) = R(Fs)}$ for all $R \in O_h$) is mathematically and numerically confirmed for Arm 5 across all 48 group operations (0 mismatches on $6^3, 8^3, 12^3$).
+   - However, the cubic group $O_h$ partitions $(3,0,0)$ (axis orbit of size 6) and $(2,2,1)$ (oblique orbit of size 24) into **disjoint orbits**. No operation in $O_h$ maps an axis vector to an oblique vector.
+   - Therefore, discrete cubic equivariance alone does not guarantee continuous $SO(3)$ rotational isotropy across distinct cubic orbits. Multi-orbit cross-coupling or schedule randomization remains necessary to align propagation speeds between axis and oblique modes.
+
+#### Live Host 8 300 GB Physical Array Validation:
+The benchmark couples directly to physical binary sectors on the **300 GB Host 8 Engine** (`D:/ASOLARIA-HOST8-ROOMS-300G`) across Sectors 000, 187, and 374:
+- **$L=24^3$ ($13,824$ cells, $373,248$ trits)**: All 3 sectors authenticated via SHA-256 (`2dfe7d75...`, `6752ab9e...`, `963805be...`).
+  - Arm 5 Energy Conservation: $dE \equiv 0.00 \times 10^{-16}$ ($dE < 10^{-12}$) [PASS].
+  - Arm 5 Loschmidt Reversibility: **0 / 373,248 mismatches** [100% BIT-FOR-BIT PASS].
+- **$L=48^3$ ($110,592$ cells, $2,985,984$ trits)**: All 3 sectors authenticated via SHA-256 (`9da76c8b...`, `b3bfb382...`, `11969dcf...`).
+  - Arm 5 Energy Conservation: $dE \equiv 0.00 \times 10^{-16}$ ($dE < 10^{-12}$) [PASS].
+  - Arm 5 Loschmidt Reversibility: **0 / 2,985,984 mismatches** [100% BIT-FOR-BIT PASS].
+
+All dataset outputs are exported to [`arm5_matched_k_dispersion_results.csv`](arm5_matched_k_dispersion_results.csv), [`arm5_matched_k_timeseries.csv`](arm5_matched_k_timeseries.csv), and [`host8_matched_k_results.csv`](host8_matched_k_results.csv).
 
 ---
 

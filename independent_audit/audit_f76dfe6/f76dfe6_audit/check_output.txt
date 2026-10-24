@@ -1,0 +1,18 @@
+new benchmark legacy family: 105 quadruplets, 15 active gates
+main Arm 3: 288 active collision gates, 32 gates/cell/tick (verified from source)
+new benchmark legacy: 12 gates/cell/tick (verified from source)
+initial density near crest/trough: 53 / 1 (not small-amplitude linear acoustics)
+L=24 Arm 3 Axis_3_0_0     c=1.005830 R2=0.9771 cycles=7.5438 three_cycle_pass=True
+L=24 Arm 3 Oblique_2_2_1  c=0.327067 R2=0.5864 cycles=2.4530 three_cycle_pass=False
+L=24 Arm 3: reported speed anisotropy 101.8478%
+L=24 Arm 5 Axis_3_0_0     c=1.003150 R2=0.9207 cycles=7.5236 three_cycle_pass=True
+L=24 Arm 5 Oblique_2_2_1  c=0.742951 R2=0.7038 cycles=5.5721 three_cycle_pass=True
+L=24 Arm 5: reported speed anisotropy 29.8034%
+L=24: reported anisotropy ratio 3.4173x
+L=48 Arm 3 Axis_3_0_0     c=1.007190 R2=0.9863 cycles=3.7770 three_cycle_pass=True
+L=48 Arm 3 Oblique_2_2_1  c=0.102327 R2=0.7184 cycles=0.3837 three_cycle_pass=False
+L=48 Arm 3: reported speed anisotropy 163.1094%
+L=48 Arm 5 Axis_3_0_0     c=1.004260 R2=0.9453 cycles=3.7660 three_cycle_pass=True
+L=48 Arm 5 Oblique_2_2_1  c=0.725351 R2=0.8865 cycles=2.7201 three_cycle_pass=False
+L=48 Arm 5: reported speed anisotropy 32.2511%
+L=48: reported anisotropy ratio 5.0575x

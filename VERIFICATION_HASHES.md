@@ -13,8 +13,10 @@
 | `corrected_thermal_timeseries.csv` | `d24a674bfc53d32d08130d816b1b09e3f50ce6d1011375930b8e74d873094e1e` |
 | `rotational_dispersion_results.csv` | `4f1202999dd18caddfe13d35fdc8dd77a20ac766045f5b2e35a350117e229dfa` |
 | `matched_k_dispersion_results.csv` | `08b31685ad2aa21500469c0b4fb484fdf168151695f6c55b8ab1f6cb8c9fc099` |
-| `arm5_matched_k_dispersion_results.csv` | `7557ee37789ff6ffbe9d069c4636bfaa722b41bce34e1ae31e2edcdbb84bdd68` |
+| `arm5_matched_k_dispersion_results.csv` | `fe29622b64712fc2b4eef6d9af613cd5c8f288dab646aa1d912d7eb355ee4724` |
+| `arm5_matched_k_timeseries.csv` | `59cae12222fbeb64b882068caf02347180b7ec4405ac651e3837f7011d3f2eab` |
 | `host8_sector_000_results.csv` | `fa1a4f1fe7f819dfc63b6ef3c14f46d95a4838800f6f80db947cf36583e53b0a` |
 | `host8_sector_187_results.csv` | `f3aee636a0bd8bd84797176e7c20fae114d1993f497f07cb4845ff2867d6d12c` |
 | `host8_sector_374_results.csv` | `c23b0ec294365c85192e6bddc5025ffff16631285d2902e30511df3f789c2fe6` |
 | `host8_verification_provenance.csv` | `a3a7956c0c754ab0604fc0467678661c9c33960605f0287c844127636d0e07de` |
+| `host8_matched_k_results.csv` | `63b79dbdb741735b234053528e63868bcb2224f87e7d3ae6f7955099cd04b531` |

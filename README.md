@@ -23,6 +23,8 @@
 > - [PEER_REVIEW_RESPONSE_6132353.md](PEER_REVIEW_RESPONSE_6132353.md): Point-by-point technical resolution of audit queries (QR-fitted acoustic isotropy, distinct 288-gate alternative rule, hyperbolic thermal transport, and coherent vortex mode decomposition).
 > - [`independent_audit/`](independent_audit/): Directory containing the independent C++ checker executables (`independent_cpp_equilibrium.cpp`, `independent_physics_probes.cpp`, `independent_rotation_equivariance.cpp`) and the SciPy variable-projection observer script (`independent_fit.py`, `fit_thermal_models.py`).
 > - [`host8_verification_provenance.csv`](host8_verification_provenance.csv): Strict cryptographic SHA-256 provenance hashes for the 110,592-byte physical binary room blocks loaded from the 300 GB Host8 engine.
+> - [HOST8_LOCAL_PHYSICS_BENCHMARK_TIMINGS.md](HOST8_LOCAL_PHYSICS_BENCHMARK_TIMINGS.md): Detailed local physical execution benchmarks, methodology, and measured timings on the physical 300 GB drive (`D:\ASOLARIA-HOST8-ROOMS-300G`), including all 375 sector heads (263.2s), deep offset 50,000,000 rooms (3.0s), and baseline regressions.
+> - [`host8_375_sector_physics_regression.csv`](host8_375_sector_physics_regression.csv): Full 375-sector physics simulation receipts (5,184,000 rooms evolved, 48 forward ticks, 16 Loschmidt reverse ticks, 0 mismatches across 139,968,000 trits).
 
 ---
 
@@ -153,6 +155,19 @@ The benchmark couples directly to physical binary sectors on the **300 GB Host 8
 
 All dataset outputs are exported to [`arm5_matched_k_dispersion_results.csv`](arm5_matched_k_dispersion_results.csv), [`arm5_matched_k_timeseries.csv`](arm5_matched_k_timeseries.csv), and [`host8_matched_k_results.csv`](host8_matched_k_results.csv).
 
+#### All-375-Sector Physics Regression (`HOST8_375_SECTOR_PHYSICS_REGRESSION`):
+Beyond the 3-sector baseline, the engine executes full discrete lattice dynamics across all 375 physical sector files (`sector-000.rooms` to `sector-374.rooms`) on `D:\ASOLARIA-HOST8-ROOMS-300G`:
+- **Physical Scale**: $375 \times 13,824 = \mathbf{5,184,000\text{ rooms}}$ ($\mathbf{139,968,000\text{ trits}}$, $41.472\text{ MB}$ physical byte coverage).
+- **Scope Boundary**: Evaluates the head of each physical sector ($0.013824\%$ of the full 300 GB volume), distinguished from a storage scan by advancing full D3Q27 collision-advection physics.
+- **Dynamical Evolution**: 48 forward ticks macroscopic simulation + 16 forward + 16 reverse ticks Loschmidt time inversion.
+- **Results**: 100% of 375 sectors satisfy exact energy conservation ($dE < 10^{-12}$) and exact bit-for-bit Loschmidt reversibility (**$0 / 139,968,000$ mismatches**).
+- **Execution Timing (Local Machine)**: **263.2 seconds (~4.39 minutes)**. Output: [`host8_375_sector_physics_regression.csv`](host8_375_sector_physics_regression.csv).
+
+#### Deep Non-Zero Offset Substrate Validation:
+To verify that physical sectors decode and evolve cleanly deep inside the volume:
+- **Test Coordinates**: Sectors 000, 187, and 374 at **room offset 50,000,000** ($400\text{ MB}$ deep into each $800\text{ MB}$ file).
+- **Results**: Maximal Shannon entropy ($S \approx 1.09861$), $dE < 10^{-12}$, and $0$ Loschmidt mismatches across all $1,119,744$ trits. Execution time: **3.0 seconds**.
+
 ---
 
 ## 4. How-To Guide & Automated Reproduction
@@ -160,6 +175,15 @@ All dataset outputs are exported to [`arm5_matched_k_dispersion_results.csv`](ar
 ### Prerequisites
 - C++17 compliant compiler (`g++`, `clang++`, or `MSVC`)
 - Python 3.8+ (standard libraries only)
+
+### Execution Commands & Local Timings
+
+| Benchmark Command | Purpose & Description | Measured Local Time |
+|---|---|:---:|
+| `python reproduce.py` | Master reproduction harness (5 simulation arms, acoustic fits, multi-shell transport, independent audit checkers) | **111.0 s (~1.85 min)** |
+| `.\asolaria_equilibrium_suite.exe --host8-375 --host8-dir "D:/ASOLARIA-HOST8-ROOMS-300G"` | All 375 sector heads (5.184M rooms, 139.9M trits, 48+16 ticks) | **263.2 s (~4.39 min)** |
+| `.\asolaria_equilibrium_suite.exe --host8-sectors 0,187,374 --host8-offset 50000000 --host8-dir "D:/ASOLARIA-HOST8-ROOMS-300G"` | Deep offset (50M rooms / 400 MB deep, 41.4k rooms, 48+16 ticks) | **3.0 s** |
+| `.\asolaria_equilibrium_suite.exe --host8-strict --host8-dir "D:/ASOLARIA-HOST8-ROOMS-300G"` | Standard baseline (Sectors 000, 187, 374 at offset 0, 48+16 ticks) | **3.0 s** |
 
 ### Automated Validation Suite
 Execute the master validation suite:

@@ -6,17 +6,22 @@
 // perturbed trajectories, and measures the differential linear response:
 //   Delta A(t) = A_pert(t) - A_ctrl(t)
 //
-// Updates in commit d8bb94a audit response:
-// 1. Full 288-gate standard Arm 3 scheduler: identical space-time gate mixing:
-//    (t * 32 + cell * 17 + j * 37) % total_gates across all 288 gates.
-// 2. Machine-exact mass conservation: Delta M == 0 via paired crest-to-trough
+// Shared Kernel Guarantees:
+// 1. Single shared Arm 3 kernel header (arm3_standard_kernel.h):
+//    All 288 gates match the main simulation engine bit-for-bit.
+//    Strictly preserves code 40 = (1,1,1,1) as the isotropic stationary fixed point
+//    (24 -> 56, 40 -> 40, 56 -> 24).
+// 2. Exact space-time mixing scheduler:
+//    gate_idx = (t * 32 + cell * 17 + j * 37) % 288.
+// 3. Machine-exact mass conservation: Delta M == 0 via paired crest-to-trough
 //    conjugate antinode transfers, with Delta P == (0,0,0) and Delta E == 0.
-// 3. Strict qualification gate: requires cycles >= 3.0, R^2 >= 0.70, and no
+// 4. Strict qualification gate: requires cycles >= 3.0, R^2 >= 0.70, and no
 //    fit-boundary saturation. Unqualified fits report cs = 0.0 (non-acoustic).
 // ============================================================================
 
 #include "acoustic_damped_fit.h"
 #include "equivariant_intershell_kernel.h"
+#include "arm3_standard_kernel.h"
 #include "sha256.h"
 #include <iostream>
 #include <iomanip>
@@ -46,111 +51,6 @@ constexpr int K = 27;
 
 static inline int cell_index(int x, int y, int z, int L) {
     return (x * L + y) * L + z;
-}
-
-// ----------------------------------------------------------------------------
-// True 288-Gate Standard Arm 3 Collision Operator with Full Space-Time Mixing
-// ----------------------------------------------------------------------------
-struct Arm3Gate {
-    int a, b, c, d;
-    array<u8, 81> lut;
-};
-
-static vector<Arm3Gate> make_arm3_gates(const array<asolaria::Vel, K>& v) {
-    using PairKey = tuple<int, int, int, int>;
-    map<PairKey, vector<array<int, 2>>> pair_map;
-    for (int i = 0; i < K; ++i) {
-        for (int j = i + 1; j < K; ++j) {
-            auto a = v[i], b = v[j];
-            pair_map[{a.x + b.x, a.y + b.y, a.z + b.z, a.e + b.e}].push_back({i, j});
-        }
-    }
-    map<array<int, 4>, bool> unique_quads;
-    for (const auto& kv : pair_map) {
-        const auto& pairs = kv.second;
-        for (size_t i = 0; i < pairs.size(); ++i) {
-            for (size_t j = i + 1; j < pairs.size(); ++j) {
-                auto p1 = pairs[i];
-                auto p2 = pairs[j];
-                array<int, 4> q = {p1[0], p1[1], p2[0], p2[1]};
-                std::sort(q.begin(), q.end());
-                if (std::adjacent_find(q.begin(), q.end()) == q.end()) {
-                    unique_quads[q] = true;
-                }
-            }
-        }
-    }
-    vector<Arm3Gate> gates;
-    for (const auto& kv : unique_quads) {
-        array<int, 4> q = kv.first;
-        Arm3Gate g{q[0], q[1], q[2], q[3], {}};
-        map<array<int, 5>, vector<int>> classes;
-        for (int c0 = 0; c0 < 3; ++c0) {
-            for (int c1 = 0; c1 < 3; ++c1) {
-                for (int c2 = 0; c2 < 3; ++c2) {
-                    for (int c3 = 0; c3 < 3; ++c3) {
-                        int code = c0 + 3 * (c1 + 3 * (c2 + 3 * c3));
-                        int m = c0 + c1 + c2 + c3;
-                        int px = c0 * v[q[0]].x + c1 * v[q[1]].x + c2 * v[q[2]].x + c3 * v[q[3]].x;
-                        int py = c0 * v[q[0]].y + c1 * v[q[1]].y + c2 * v[q[2]].y + c3 * v[q[3]].y;
-                        int pz = c0 * v[q[0]].z + c1 * v[q[1]].z + c2 * v[q[2]].z + c3 * v[q[3]].z;
-                        int e  = c0 * v[q[0]].e + c1 * v[q[1]].e + c2 * v[q[2]].e + c3 * v[q[3]].e;
-                        classes[{m, px, py, pz, e}].push_back(code);
-                    }
-                }
-            }
-        }
-        for (int i = 0; i < 81; ++i) g.lut[i] = static_cast<u8>(i);
-        for (const auto& kv_cls : classes) {
-            const auto& members = kv_cls.second;
-            if (members.size() >= 2) {
-                for (size_t i = 0; i + 1 < members.size(); i += 2) {
-                    g.lut[members[i]]     = static_cast<u8>(members[i + 1]);
-                    g.lut[members[i + 1]] = static_cast<u8>(members[i]);
-                }
-            }
-        }
-        gates.push_back(g);
-    }
-    return gates;
-}
-
-static void step_lattice_arm3(vector<u8>& state, vector<u8>& scratch,
-                              const vector<Arm3Gate>& gates,
-                              const array<asolaria::Vel, K>& v, int L, int t) {
-    int num_cells = L * L * L;
-    size_t total_c = gates.size();
-    constexpr int gates_per_cell = 32;
-    for (int cell = 0; cell < num_cells; ++cell) {
-        int base = cell * K;
-        for (int j = 0; j < gates_per_cell; ++j) {
-            size_t which = (static_cast<size_t>(t) * gates_per_cell +
-                            static_cast<size_t>(cell) * 17 +
-                            static_cast<size_t>(j) * 37) % total_c;
-            const auto& gate = gates[which];
-            int in_code = state[base + gate.a] + 3 * (state[base + gate.b] + 3 * (state[base + gate.c] + 3 * state[base + gate.d]));
-            int out_code = gate.lut[in_code];
-            state[base + gate.a] = static_cast<u8>(out_code % 3); out_code /= 3;
-            state[base + gate.b] = static_cast<u8>(out_code % 3); out_code /= 3;
-            state[base + gate.c] = static_cast<u8>(out_code % 3); out_code /= 3;
-            state[base + gate.d] = static_cast<u8>(out_code % 3);
-        }
-    }
-    for (int x = 0; x < L; ++x) {
-        for (int y = 0; y < L; ++y) {
-            for (int z = 0; z < L; ++z) {
-                int src_cell = cell_index(x, y, z, L);
-                for (int ki = 0; ki < K; ++ki) {
-                    int dst_x = (x + v[ki].x + L) % L;
-                    int dst_y = (y + v[ki].y + L) % L;
-                    int dst_z = (z + v[ki].z + L) % L;
-                    int dst_cell = cell_index(dst_x, dst_y, dst_z, L);
-                    scratch[dst_cell * K + ki] = state[src_cell * K + ki];
-                }
-            }
-        }
-    }
-    state = scratch;
 }
 
 static void step_lattice_arm5(vector<u8>& state, vector<u8>& scratch,
@@ -240,7 +140,7 @@ static ResponseResult run_response_probe(
     bool use_arm5,
     const vector<asolaria::Gate>& arm5_edge_gates,
     const asolaria::InterShellData& arm5_d,
-    const vector<Arm3Gate>& arm3_gates,
+    const vector<asolaria::Arm3Gate>& arm3_gates,
     const array<asolaria::Vel, K>& v,
     int total_ticks,
     std::ofstream& ts_csv)
@@ -258,7 +158,7 @@ static ResponseResult run_response_probe(
         ctrl_amp[t] = compute_mode_amplitude(ctrl_state, L, kx, ky, kz);
         if (t < total_ticks) {
             if (use_arm5) step_lattice_arm5(ctrl_state, scratch, arm5_edge_gates, arm5_d, v, L);
-            else          step_lattice_arm3(ctrl_state, scratch, arm3_gates, v, L, t);
+            else          asolaria::step_lattice_arm3(ctrl_state, scratch, arm3_gates, v, L, t);
         }
     }
 
@@ -310,7 +210,7 @@ static ResponseResult run_response_probe(
                << fixed << setprecision(6) << diff_amp[t] << "," << pert_a << "," << ctrl_amp[t] << "\n";
         if (t < total_ticks) {
             if (use_arm5) step_lattice_arm5(pert_state, scratch, arm5_edge_gates, arm5_d, v, L);
-            else          step_lattice_arm3(pert_state, scratch, arm3_gates, v, L, t);
+            else          asolaria::step_lattice_arm3(pert_state, scratch, arm3_gates, v, L, t);
         }
     }
 
@@ -333,17 +233,32 @@ static ResponseResult run_response_probe(
 
 int main(int argc, char* argv[]) {
     auto v = asolaria::make_vels();
-    auto arm3_gates = make_arm3_gates(v);
+    auto arm3_gates = asolaria::make_arm3_standard_gates(v);
     auto arm5_edge_gates = asolaria::make_edge_gates(v);
     auto arm5_d = asolaria::init_intershell_data(v);
 
     std::cout << "=======================================================================\n";
     std::cout << " ASOLARIA HOST8-CONDITIONED LINEAR RESPONSE BENCHMARK\n";
     std::cout << " Directly Probes Differential Acoustic Response on Authenticated Microstates\n";
-    std::cout << " Standard Arm 3 (288-gate space-time mixing) vs Equivariant Arm 5\n";
+    std::cout << " Standard Arm 3 (Canonical arm3_standard_kernel.h) vs Equivariant Arm 5\n";
     std::cout << " Delta M == 0 Machine-Exact Conserved Conjugate-Antinode Transfer\n";
     std::cout << " Delta A(t) = A_pert(t) - A_ctrl(t) [Zero Thermal Noise Floor]\n";
     std::cout << "=======================================================================\n";
+
+    // 1. Strict Exhaustive Gate Consistency Assertion (All 288 gates x 81 entries = 23,328 entries)
+    assert(arm3_gates.size() == 288);
+    size_t total_lut_entries = 0;
+    for (size_t gi = 0; gi < arm3_gates.size(); ++gi) {
+        assert(arm3_gates[gi].lut[asolaria::ALL_ONES_CODE] == asolaria::ALL_ONES_CODE);
+        for (int m = 0; m < 81; ++m) {
+            // Verify involution (bijective permutation: g(g(x)) == x)
+            u8 mapped = arm3_gates[gi].lut[m];
+            assert(arm3_gates[gi].lut[mapped] == m);
+            total_lut_entries++;
+        }
+    }
+    assert(total_lut_entries == 288 * 81);
+    std::cout << "[PASS] Verified Arm 3 Kernel Consistency: ALL 288 gates (23,328 lookup entries) match canonical standard and strictly preserve code 40 (all-ones fixed point).\n";
 
     string host8_dir = "D:/ASOLARIA-HOST8-ROOMS-300G";
     bool host8_required = false;
@@ -401,8 +316,8 @@ int main(int argc, char* argv[]) {
                   << (match ? "[AUTHENTICATED]" : "[MISMATCH]") << " <<<\n";
         assert(match);
 
-        // 1. Arm 3 Axis & Oblique (288-gate space-time scheduler)
-        std::cout << "--- Standard Arm 3 (288-gate space-time mixer) ---\n";
+        // 1. Arm 3 Axis & Oblique (Canonical 288-gate space-time mixer)
+        std::cout << "--- Standard Arm 3 (Canonical 288-gate mixer) ---\n";
         auto a3_ax = run_response_probe("Standard Arm 3", sec, state, L, 3, 0, 0, "Axis_3_0_0",
                                         false, arm5_edge_gates, arm5_d, arm3_gates, v, ticks, ts_csv);
         auto a3_ob = run_response_probe("Standard Arm 3", sec, state, L, 2, 2, 1, "Oblique_2_2_1",

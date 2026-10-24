@@ -11,6 +11,7 @@
 
 #include "acoustic_damped_fit.h"
 #include "equivariant_intershell_kernel.h"
+#include "arm3_standard_kernel.h"
 #include "sha256.h"
 #include <iostream>
 #include <iomanip>
@@ -42,97 +43,11 @@ static inline int cell_index(int x, int y, int z, int L) {
 }
 
 // ----------------------------------------------------------------------------
-// True 288-Gate Standard Arm 3 Collision Operator (32 gates/cell/tick)
+// Shared True 288-Gate Standard Arm 3 Kernel (arm3_standard_kernel.h)
 // ----------------------------------------------------------------------------
-struct Arm3Gate {
-    int a, b, c, d;
-    array<u8, 81> lut;
-};
-
-static vector<Arm3Gate> make_arm3_gates(const array<asolaria::Vel, K>& v) {
-    using PairKey = tuple<int, int, int, int>;
-    map<PairKey, vector<array<int, 2>>> pair_map;
-    for (int i = 0; i < K; ++i) {
-        for (int j = i + 1; j < K; ++j) {
-            auto a = v[i], b = v[j];
-            pair_map[{a.x + b.x, a.y + b.y, a.z + b.z, a.e + b.e}].push_back({i, j});
-        }
-    }
-    map<array<int, 4>, bool> unique_quads;
-    for (const auto& kv : pair_map) {
-        const auto& pairs = kv.second;
-        for (size_t i = 0; i < pairs.size(); ++i) {
-            for (size_t j = i + 1; j < pairs.size(); ++j) {
-                auto p1 = pairs[i];
-                auto p2 = pairs[j];
-                array<int, 4> q = {p1[0], p1[1], p2[0], p2[1]};
-                std::sort(q.begin(), q.end());
-                if (std::adjacent_find(q.begin(), q.end()) == q.end()) {
-                    unique_quads[q] = true;
-                }
-            }
-        }
-    }
-    vector<Arm3Gate> gates;
-    for (const auto& kv : unique_quads) {
-        array<int, 4> q = kv.first;
-        Arm3Gate g{q[0], q[1], q[2], q[3], {}};
-        map<array<int, 5>, vector<int>> classes;
-        for (int mask = 0; mask < 81; ++mask) {
-            g.lut[mask] = static_cast<u8>(mask);
-            classes[asolaria::get_invariants(asolaria::decode_mask(mask), q, v)].push_back(mask);
-        }
-        for (const auto& c_entry : classes) {
-            vector<int> codes;
-            for (int code : c_entry.second) if (code != 40) codes.push_back(code);
-            for (size_t j = 0; j + 1 < codes.size(); j += 2) {
-                int c1 = codes[j]; int c2 = codes[j + 1];
-                g.lut[c1] = static_cast<u8>(c2);
-                g.lut[c2] = static_cast<u8>(c1);
-            }
-        }
-        gates.push_back(g);
-    }
-    return gates;
-}
-
-static void step_universe_arm3(vector<u8>& state, vector<u8>& next_state,
-                              const vector<Arm3Gate>& gates,
-                              const array<asolaria::Vel, K>& v, int L, int t) {
-    int V = L * L * L;
-    size_t total_c = gates.size();
-    constexpr int gates_per_cell = 32;
-    for (int cell = 0; cell < V; ++cell) {
-        int base = cell * K;
-        for (int j = 0; j < gates_per_cell; ++j) {
-            size_t which = (static_cast<size_t>(t) * gates_per_cell +
-                            static_cast<size_t>(cell) * 17 +
-                            static_cast<size_t>(j) * 37) % total_c;
-            const auto& g = gates[which];
-            int in_mask = asolaria::encode_mask(state[base + g.a], state[base + g.b], state[base + g.c], state[base + g.d]);
-            auto dec = asolaria::decode_mask(g.lut[in_mask]);
-            state[base + g.a] = static_cast<u8>(dec[0]);
-            state[base + g.b] = static_cast<u8>(dec[1]);
-            state[base + g.c] = static_cast<u8>(dec[2]);
-            state[base + g.d] = static_cast<u8>(dec[3]);
-        }
-    }
-    for (int x = 0; x < L; ++x) {
-        for (int y = 0; y < L; ++y) {
-            for (int z = 0; z < L; ++z) {
-                int src = cell_index(x, y, z, L);
-                for (int ki = 0; ki < K; ++ki) {
-                    int nx = (x + v[ki].x + L) % L;
-                    int ny = (y + v[ki].y + L) % L;
-                    int nz = (z + v[ki].z + L) % L;
-                    int dst = cell_index(nx, ny, nz, L);
-                    next_state[dst * K + ki] = state[src * K + ki];
-                }
-            }
-        }
-    }
-    state = next_state;
-}
+using asolaria::Arm3Gate;
+using asolaria::make_arm3_standard_gates;
+#define step_universe_arm3 asolaria::step_lattice_arm3
 
 // ----------------------------------------------------------------------------
 // Equivariant Inter-Shell Operator (Arm 5)
@@ -299,7 +214,7 @@ static MatchedKResult run_matched_k_probe(int L, int kx, int ky, int kz, const s
 
 int main(int argc, char* argv[]) {
     auto v = asolaria::make_vels();
-    auto arm3_gates = make_arm3_gates(v);
+    auto arm3_gates = asolaria::make_arm3_standard_gates(v);
     auto arm5_edge_gates = asolaria::make_edge_gates(v);
     auto arm5_d = asolaria::init_intershell_data(v);
 

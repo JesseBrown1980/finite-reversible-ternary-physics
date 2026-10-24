@@ -301,6 +301,19 @@ def run():
             print("  [PASS] Multi-Shell Equivariance & Transport: 100% Exact Oh Equivariance + Active Face/Thermal Collisions.")
             if os.path.exists(multi_exe): os.remove(multi_exe)
 
+            # Genuine Inter-Shell Cross-Coupling & Constant-Density Thermal Transport
+            inter_exe = "test_inter_shell_equivariance.exe" if os.name == "nt" else "./test_inter_shell_equivariance"
+            res15 = subprocess.run(["g++", "-O3", "-std=c++17", "-static", "test_inter_shell_equivariance.cpp", "-o", inter_exe])
+            if res15.returncode != 0:
+                print("[FAIL] Compilation of test_inter_shell_equivariance.cpp failed!")
+                sys.exit(1)
+            res16 = subprocess.run([inter_exe])
+            if res16.returncode != 0:
+                print("[FAIL] Inter-shell cross-coupling verification failed!")
+                sys.exit(1)
+            print("  [PASS] Genuine Inter-Shell Redistribution: All 4 shells actively exchange particles & energy under exact Oh symmetry.")
+            if os.path.exists(inter_exe): os.remove(inter_exe)
+
             if os.path.exists(eq_exe): os.remove(eq_exe)
             if os.path.exists(probe_exe): os.remove(probe_exe)
         finally:

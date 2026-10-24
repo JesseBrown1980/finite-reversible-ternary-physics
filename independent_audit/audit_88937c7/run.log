@@ -1,0 +1,9 @@
+Face states 729, active 180, involution failures 0, Oh failures 0
+Edge gate active patterns 30,30,30 of 81; analytically predicted random full-cell collision activation 81.2025%
+Random full-cell tests 5000x48; active 4093, failures 0
+Whole-lattice two-step Oh equivariance comparisons 663552, failures 0
+Face sound probe changes trits: 1
+Thermal-test initial density range 23..31, global momentum (0,0,0)
+Initial active collision cells: face pulse 3456/13824, hot-cold slab 13824/13824
+Four velocity-shell total occupancy before (13824,82944,165888,110592) after (13824,82944,165888,110592)
+SUCCESS

@@ -1112,8 +1112,11 @@ static bool load_host8_rooms(const string& path, u64 offset, int num_cells, vect
     return true;
 }
 
-static bool run_host8_suite(bool strict_mode = false) {
-    string dir = "D:/ASOLARIA-HOST8-ROOMS-300G";
+static bool run_host8_suite(bool strict_mode = false, const string& custom_dir = "") {
+    string dir = custom_dir.empty() ? "D:/ASOLARIA-HOST8-ROOMS-300G" : custom_dir;
+    if (!std::ifstream(dir + "/sector-000.rooms").is_open() && std::ifstream("data/host8_samples/sector-000.rooms").is_open()) {
+        dir = "data/host8_samples";
+    }
     vector<int> sectors = {0, 187, 374};
     int L = 24;
     int V = L * L * L;
@@ -1250,6 +1253,7 @@ int main(int argc, char** argv) {
     bool run_host8 = false;
     bool host8_strict = false;
     bool standalone = false;
+    string custom_host8_dir = "";
     bool ok = true;
 
     for (int i = 1; i < argc; ++i) {
@@ -1257,6 +1261,7 @@ int main(int argc, char** argv) {
         if (arg == "--all") run_all = true;
         if (arg == "--host8") run_host8 = true;
         if (arg == "--host8-strict") { host8_strict = true; run_host8 = true; }
+        if (arg == "--host8-dir" && i + 1 < argc) { custom_host8_dir = argv[++i]; }
         if (arg == "--standalone") standalone = true;
     }
 
@@ -1272,9 +1277,9 @@ int main(int argc, char** argv) {
         ok &= run_reversibility();
         ok &= run_grid_refinement();
         ok &= run_thermal_diffusion();
-        ok &= run_host8_suite(host8_strict);
+        ok &= run_host8_suite(host8_strict, custom_host8_dir);
     } else if (run_host8) {
-        ok &= run_host8_suite(host8_strict);
+        ok &= run_host8_suite(host8_strict, custom_host8_dir);
     }
 
     std::cout << "\n=======================================================================\n";

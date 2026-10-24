@@ -199,4 +199,8 @@ This script will:
 - [`host8_sector_000_results.csv`](host8_sector_000_results.csv): Sector 000 (Head) 48-tick Host8 substrate time series.
 - [`host8_sector_187_results.csv`](host8_sector_187_results.csv): Sector 187 (Ground Zero) 48-tick Host8 substrate time series.
 - [`host8_sector_374_results.csv`](host8_sector_374_results.csv): Sector 374 (Boundary) 48-tick Host8 substrate time series.
+- [`data/host8_samples/`](data/host8_samples/): Offline 2.53 MiB cryptographic slices of Sectors 000, 187, and 374 for standalone container authentication.
+- [`test_host8_acoustic_response.cpp`](test_host8_acoustic_response.cpp): Differential linear acoustic response probe on authenticated Host 8 microstates ($\Delta A(t) = A_{\text{pert}}(t) - A_{\text{ctrl}}(t)$).
+- [`host8_linear_response_results.csv`](host8_linear_response_results.csv): Measured acoustic response and damping parameters on Host 8.
+- [`independent_audit/audit_9343273/`](independent_audit/audit_9343273/): Complete independent audit suite for commit `9343273`, including strict fail-closed authenticator (`host8_independent_verifier.py`) and native room roundtrip (`native_synthetic_room_roundtrip_portable.cpp`).
 - [`LICENSE`](LICENSE): MIT License.

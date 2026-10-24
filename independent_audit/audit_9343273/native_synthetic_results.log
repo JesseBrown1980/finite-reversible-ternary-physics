@@ -1,0 +1,2 @@
+SYNTHETIC L=24 rooms=13824 trits=373248 initial_mass=372438 initial_px=237 initial_py=-1002 initial_pz=-181 double_energy=745092 forward_ticks=24 conservation=PASS forward_reverse_8_8_mismatch=0 reversible=PASS
+SYNTHETIC L=48 rooms=110592 trits=2985984 initial_mass=2986055 initial_px=-406 initial_py=-30 initial_pz=70 double_energy=5973716 forward_ticks=8 conservation=PASS forward_reverse_8_8_mismatch=0 reversible=PASS

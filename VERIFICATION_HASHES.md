@@ -20,3 +20,5 @@
 | `host8_sector_374_results.csv` | `c23b0ec294365c85192e6bddc5025ffff16631285d2902e30511df3f789c2fe6` |
 | `host8_verification_provenance.csv` | `a3a7956c0c754ab0604fc0467678661c9c33960605f0287c844127636d0e07de` |
 | `host8_matched_k_results.csv` | `63b79dbdb741735b234053528e63868bcb2224f87e7d3ae6f7955099cd04b531` |
+| `host8_linear_response_results.csv` | `92602f67b7f9c568f5c9495840190f1d7739a32e6248214858129ecfbbf3d536` |
+| `host8_linear_response_timeseries.csv` | `0f61d737dac35edaad79c833dd547ef030ec29c2d5e719070ada06eed9e0a0f8` |

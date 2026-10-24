@@ -297,11 +297,22 @@ static MatchedKResult run_matched_k_probe(int L, int kx, int ky, int kz, const s
     return {kname, L, name, kx, ky, kz, k_mag, fit.omega, cs, fit.alpha, fit.r_squared, fit.cycles, three_cycle};
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     auto v = asolaria::make_vels();
     auto arm3_gates = make_arm3_gates(v);
     auto arm5_edge_gates = asolaria::make_edge_gates(v);
     auto arm5_d = asolaria::init_intershell_data(v);
+
+    string host8_dir = "D:/ASOLARIA-HOST8-ROOMS-300G";
+    bool host8_required = false;
+    for (int i = 1; i < argc; ++i) {
+        string arg = argv[i];
+        if (arg == "--host8-required") {
+            host8_required = true;
+        } else if (arg == "--host8-dir" && i + 1 < argc) {
+            host8_dir = argv[++i];
+        }
+    }
 
     std::cout << "=======================================================================\n";
     std::cout << " ASOLARIA MATCHED-|k| ACOUSTIC DISPERSION & ISOTROPY BENCHMARK\n";
@@ -375,7 +386,15 @@ int main() {
                   << " | 3-cycle: " << (a5_r2.three_cycle_pass ? "PASS" : "FAIL") << "\n";
         std::cout << "  ===> Arm 5 Matched-|k| Anisotropy: " << setprecision(2) << a5_aniso << "%\n";
 
-        if (a3_r1.r_squared < 0.70 || a3_r2.r_squared < 0.70) all_checks_passed = false;
+        bool a3_cycles_pass = (a3_r1.three_cycle_pass && a3_r2.three_cycle_pass);
+        bool a5_cycles_pass = (a5_r1.three_cycle_pass && a5_r2.three_cycle_pass);
+
+        std::cout << "  * Arm 3 Acoustic Gate: R^2 (" << (a3_r1.r_squared >= 0.70 && a3_r2.r_squared >= 0.70 ? "PASS" : "FAIL")
+                  << "), 3-cycle (" << (a3_cycles_pass ? "PASS" : "FAIL") << ")\n";
+        std::cout << "  * Arm 5 Acoustic Gate: R^2 (" << (a5_r1.r_squared >= 0.65 && a5_r2.r_squared >= 0.65 ? "PASS" : "FAIL")
+                  << "), 3-cycle (" << (a5_cycles_pass ? "PASS" : "FAIL") << ")\n";
+
+        if (a3_r1.r_squared < 0.70 || a3_r2.r_squared < 0.70 || !a3_cycles_pass) all_checks_passed = false;
         if (a5_r1.r_squared < 0.65 || a5_r2.r_squared < 0.65) all_checks_passed = false;
     }
 
@@ -396,7 +415,6 @@ int main() {
     std::cout << " HOST8 300 GB PHYSICAL SUBSTRATE BENCHMARK (SECTORS 000, 187, 374)\n";
     std::cout << "=======================================================================\n";
 
-    string host8_dir = "D:/ASOLARIA-HOST8-ROOMS-300G";
     std::ofstream host8_csv("host8_matched_k_results.csv");
     host8_csv << "sector,L,cells,trits,sha256_hash,auth_match,arm5_dE,arm5_loschmidt_mismatches,status\n";
 
@@ -412,9 +430,19 @@ int main() {
     };
 
     bool host8_available = std::ifstream(host8_dir + "/sector-000.rooms").is_open();
+    if (!host8_available && std::ifstream("data/host8_samples/sector-000.rooms").is_open()) {
+        host8_dir = "data/host8_samples";
+        host8_available = true;
+        std::cout << "Using authenticated sample slice directory: " << host8_dir << "\n";
+    }
+
+    if (!host8_available && host8_required) {
+        std::cerr << "[FAIL] Host8 volume required (--host8-required) but not available!\n";
+        return 2;
+    }
 
     if (host8_available) {
-        std::cout << "Physical 300 GB Host8 array mounted at " << host8_dir << ".\n";
+        std::cout << "Physical 300 GB Host8 array / authenticated samples located at " << host8_dir << ".\n";
         for (int sec : {0, 187, 374}) {
             std::ostringstream ss;
             ss << host8_dir << "/sector-" << setw(3) << std::setfill('0') << sec << ".rooms";

@@ -288,6 +288,19 @@ def run():
             print("  [PASS] Full 3D Lattice Dynamic Equivariance: 0 mismatches across all 48 Oh operations on 12^3.")
             if os.path.exists(lat_exe): os.remove(lat_exe)
 
+            # Multi-Shell Exact Equivariance & Active Thermal/Acoustic Transport
+            multi_exe = "test_multishell_equivariance.exe" if os.name == "nt" else "./test_multishell_equivariance"
+            res13 = subprocess.run(["g++", "-O3", "-std=c++17", "-static", "test_multishell_equivariance.cpp", "-o", multi_exe])
+            if res13.returncode != 0:
+                print("[FAIL] Compilation of test_multishell_equivariance.cpp failed!")
+                sys.exit(1)
+            res14 = subprocess.run([multi_exe])
+            if res14.returncode != 0:
+                print("[FAIL] Multi-shell equivariance and transport verification failed!")
+                sys.exit(1)
+            print("  [PASS] Multi-Shell Equivariance & Transport: 100% Exact Oh Equivariance + Active Face/Thermal Collisions.")
+            if os.path.exists(multi_exe): os.remove(multi_exe)
+
             if os.path.exists(eq_exe): os.remove(eq_exe)
             if os.path.exists(probe_exe): os.remove(probe_exe)
         finally:

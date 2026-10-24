@@ -41,3 +41,5 @@
 | `host8_pilot_1000.anchor` | `0567bd815e300627505f56d90ba55ec3cf178080912aa69e76d7fa5c154d70fd` |
 | `host8_pilot_1000_manifest.json` | `9b5eb4ff5a6d9b4286186ced40f1fd45fbb33e522b674504372bbb3d042c05c5` |
 | `benchmark_host8_recovery.py` | `5b1dab56a691e1758242fab0280726e7dd2edb9884894bdb363ed607a74a7fb1` |
+| `run_physical_window_243.cpp` | `b281c5c37696525872796002354dd679fd097f35df744fb5bcdf15a1dde68770` |
+| `host8_cpp_physical_243_ticks.csv` | `31d25d77b1b135818a7123c738c02db8d69b30dc17a46ef1bf6d9005191834e8` |

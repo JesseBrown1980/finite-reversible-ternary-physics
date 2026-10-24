@@ -2,10 +2,10 @@
 
 | Dataset File | SHA-256 Checksum |
 |---|---|
-| `arm1_quiescent_results.csv` | `9a282b792e743427a086a98c9b8b1dc06b3c3076c59564c8a3390ea4ab178372` |
-| `arm2_thermal_equilibrium_results.csv` | `32a543c0ca8148bb46c51c3b38e450bd36c3ccd2a89ed5a4ba5844f19ffa31d1` |
-| `arm3_taylor_green_results.csv` | `3bcb2dc6934d5c49f407fc865e55f45083300e99bc4e2409330be73d0b2eecc3` |
-| `arm4_matched_control_results.csv` | `32a543c0ca8148bb46c51c3b38e450bd36c3ccd2a89ed5a4ba5844f19ffa31d1` |
-| `isotropy_results.csv` | `d7eb30a730c682811f367f97aea0bcd381a93d62d7fddd2fce8b86b5edaad826` |
-| `grid_refinement_results.csv` | `e73274fa7f613ddf36ebacadabb39320e2a7911fd4523fbe40ff8da3a23dd083` |
-| `thermal_diffusion_results.csv` | `42728a74f5a7384e55ad808e4589962c95883090fafc0b4b2f7c71673e59f54d` |
+| `arm1_quiescent_results.csv` | `5c2873a8d58902269e5ccae916cdbdaa4482686bbc8b055d0f10c7c25e46431f` |
+| `arm2_thermal_equilibrium_results.csv` | `47b5d03d000efaf31bbfbdce72210f82f51a9322cbb2bc0a77eab5183d81cfd6` |
+| `arm3_taylor_green_results.csv` | `2ab03c42f1490846dc0d290a0fd609695698233eedcecdd6027b799855c9e87d` |
+| `arm4_matched_control_results.csv` | `1253427d79d723d2639582434fddccffb9d57bec28220ef9a3d6974a643dffe2` |
+| `isotropy_results.csv` | `28226d7db0e4822f06746b599a1eeea9a9b80306bd2e688caefbaddfc11c4229` |
+| `grid_refinement_results.csv` | `179841fcac6255d84b268dcc5a5eb16a5ec8a7da04ddbb77de61f3099b22c974` |
+| `thermal_diffusion_results.csv` | `21e52adb702e0d4f69512bde649bd6ec0c2b988a24e7fe5446945c7531e87eb7` |

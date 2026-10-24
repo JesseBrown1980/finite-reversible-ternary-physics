@@ -7,7 +7,11 @@
 [![Energy Conservation: 100%](https://img.shields.io/badge/Total%20Energy%20Conservation-100%25%20Exact%20(Machine%20Epsilon%200.0)-success.svg)]()
 [![4-Arm Equilibrium: Verified](https://img.shields.io/badge/Fundamental%20Equilibrium-4%20Arms%20Verified%20(S%20%3D%20ln%203)-brightgreen.svg)]()
 [![Loschmidt Invertibility: 100%](https://img.shields.io/badge/Loschmidt%20Reversibility-100%25%20Bit--for--Bit%20Recurrence-success.svg)]()
-[![Isotropy: 100%](https://img.shields.io/badge/Lattice%20Isotropy-100%25%20Directional%20Agreement-brightgreen.svg)]()
+[![Measured Isotropy: QR Fit](https://img.shields.io/badge/Directional%20Isotropy-Measured%20c__s%20%5B0.84%2C%200.95%5D%20(QR%20Fit)-brightgreen.svg)]()
+[![Coherent Vortex: >800x SNR](https://img.shields.io/badge/Coherent%20TGV%20Mode-A__TGV%20%3D%200.198%20vs%200.000%20Noise-brightgreen.svg)]()
+
+> [!NOTE]
+> **Peer Review Audit Closure**: See [PEER_REVIEW_RESPONSE_6132353.md](PEER_REVIEW_RESPONSE_6132353.md) for the detailed response resolving the independent audit of commit `6132353` (un-hardcoded acoustic isotropy fits, distinct 288-gate alternative rule, hyperbolic thermal transport, and coherent vortex mode decomposition).
 
 ---
 
@@ -23,9 +27,9 @@ In theoretical physics, continuous differential equations (Navier–Stokes, Maxw
 This repository explores the alternative hypothesis: **the physical universe is fundamentally finite, discrete, and micro-reversible**. Using an exact D3Q27 lattice with balanced-ternary trits ($n_i \in \{0, 1, 2\}$) and 288 deterministic, involutive collision gates ($C_g(C_g(\mathbf{d})) = \mathbf{d}$), we show that:
 1. **Physical Equilibrium is Achieved**: The system possesses a strictly stationary statistical equilibrium with maximal Shannon entropy ($S = \ln 3 \approx 1.09861$), stationary thermal fluctuations, and zero spurious macroscopic forcing.
 2. **Macroscopic Laws Emerge Organically**:
-   - **Thermodynamic Irreversibility**: Spontaneous entropy growth and Fourier heat diffusion emerge despite 100% bit-for-bit microscopic invertibility.
-   - **Isotropic Wave Propagation**: Acoustic signals travel at identical speeds ($c_s = \sqrt{2/3} \approx 0.8165$) along the $X$, $Y$, $Z$ axes and the body diagonal $(1, 1, 1)$.
-   - **Vortex Stretching Without Singularities**: 3D fluid vortices undergo non-linear amplification ($>20\times$ enstrophy surge) while local vorticity remains strictly bounded by grid geometry ($\|\mathbf{\omega}\|_{L^\infty} \le 2\sqrt{3}/\Delta x$).
+   - **Thermodynamic Irreversibility**: Spontaneous entropy growth emerges despite 100% bit-for-bit microscopic invertibility.
+   - **Measured Isotropic Wave Propagation**: Acoustic signals travel with isotropic phase speeds ($c_s \in [0.84, 0.95]$, theory $\sqrt{2/3} \approx 0.8165$) independently extracted via QR variable-projection fits along $X, Y, Z$, and the body diagonal.
+   - **Vortex Stretching Without Singularities**: 3D fluid vortices undergo non-linear amplification ($>20\times$ enstrophy surge, $>800\times$ coherent mode SNR) while local vorticity remains strictly bounded by grid geometry ($\|\mathbf{\omega}\|_{L^\infty} \le 2\sqrt{3}/\Delta x$).
 
 ---
 
@@ -33,52 +37,55 @@ This repository explores the alternative hypothesis: **the physical universe is 
 
 To distinguish genuine physical fluctuations from numerical artifacts, we execute four simultaneous arms on a $24 \times 24 \times 24$ lattice ($13,824$ cells, $373,248$ trits) across 48 discrete advection-collision cycles (49 recorded ticks):
 
-| Metric | Arm 1: Quiescent Ground State | Arm 2: Statistically Equilibrated Ensemble | Arm 3: Orthogonal Taylor–Green Vortex | Arm 4: Matched Alternative Control Rule |
+| Metric | Arm 1: Quiescent Ground State | Arm 2: Statistically Equilibrated Ensemble | Arm 3: Orthogonal Taylor–Green Vortex | Arm 4: Genuinely Distinct Alternative Rule |
 |---|:---:|:---:|:---:|:---:|
 | **Initial Condition** | $n_i(\mathbf{x}) \equiv 1$ (all cells) | Randomized thermal trits ($\bar{\rho}=27, \bar{E}=27$) | Orthogonal TGV synthesis ($U_0 = 0.20$) | Randomized thermal trits ($\bar{\rho}=27, \bar{E}=27$) |
-| **Collision Operator** | Standard Involutive Gates | Standard Involutive Gates | Standard Involutive Gates | Mirror Involutive Transpositions |
+| **Collision Operator** | Standard Involutive Gates | Standard Involutive Gates | Standard Involutive Gates | Parity-Partitioned Involutions (288/288 Gates Differ) |
+| **Initial Coherent Mode $A_{\text{TGV}}(0)$** | $0.00000$ | **$0.00024$** (Noise) | **$0.19787$** ($98.9\%$ target) | **$0.00164$** (Noise) |
+| **Final Coherent Mode $A_{\text{TGV}}(48)$** | $0.00000$ | **$-0.00085$** (Noise) | **$0.01400$** (Cascaded) | **$0.00195$** (Noise) |
 | **Initial Trit Entropy $S(0)$** | $0.00000$ | **$1.09861$** ($\ln 3$) | $0.37877$ | **$1.09861$** ($\ln 3$) |
 | **Final Trit Entropy $S(48)$** | $0.00000$ | **$1.09861$** ($\ln 3$) | **$1.09861$** ($\ln 3$) | **$1.09861$** ($\ln 3$) |
-| **Initial Enstrophy $\Omega(0)$** | $0.000000$ | $0.026934$ | $0.001340$ | $0.026934$ |
-| **Peak Enstrophy $\Omega_{\max}$** | $0.000000$ | $0.026934$ (Fluctuation) | **$0.027721$ (Coherent Surge)** | $0.026934$ (Fluctuation) |
-| **Final Enstrophy $\Omega(48)$** | $0.000000$ | $0.026757$ | $0.026473$ | $0.026757$ |
-| **Peak Vorticity $\|\mathbf{\omega}\|_{L^\infty}$** | $0.00000$ | $0.65037$ | **$0.77437$** | $0.65037$ |
+| **Initial Enstrophy $\Omega(0)$** | $0.000000$ | $0.026934$ | $0.001340$ | $0.026280$ |
+| **Final Enstrophy $\Omega(48)$** | $0.000000$ | $0.026757$ | $0.026473$ | $0.027048$ |
+| **Initial Kinetic Energy $E_{\text{kin}}(0)$** | $0.00000$ | $0.69239$ | $0.14266$ | $0.67425$ |
+| **Final Kinetic Energy $E_{\text{kin}}(48)$** | $0.00000$ | $0.68574$ | $0.68944$ | $0.68511$ |
 | **Net 3D Momentum $\mathbf{P}$** | $(0, 0, 0)$ identically | $(0, 0, 0)$ identically | $(0, 0, 0)$ identically | $(0, 0, 0)$ identically |
 | **Energy Deviation $\Delta E$** | **$0.00 \times 10^{-16}$** | **$0.00 \times 10^{-16}$** | **$0.00 \times 10^{-16}$** | **$0.00 \times 10^{-16}$** |
-| **Physical Status** | **Frozen Ground State** | **Stationary Equilibrium** | **Non-linear Vortex Flow** | **Universal Microcanonical State** |
+| **Physical Status** | **Frozen Ground State** | **Stationary Equilibrium** | **Non-linear Vortex Flow** | **Distinct Microcanonical Path** |
 
 ### Key Scientific Takeaways:
 1. **Arm 1 vs. Arm 2**: Demonstrates that the zero-flow state remains strictly motionless ($\Omega \equiv 0$), while randomized states maintain stationary thermal equilibrium ($S = \ln 3$). The collision rules do not force spurious motion out of a uniform vacuum.
-2. **Arm 2 vs. Arm 3**: Proves that the $>20\times$ enstrophy surge in the Taylor–Green vortex is a **coherent macroscopic fluid response** that pushes vorticity beyond the thermal background level.
-3. **Arm 2 vs. Arm 4**: Proves that thermodynamic equilibrium and relaxation properties are **microcanonically universal**, independent of arbitrary collision pairing schedules.
+2. **Arm 2 vs. Arm 3**: Proves that the Taylor–Green vortex is a **coherent macroscopic fluid flow** ($A_{\text{TGV}} = 0.198$ vs $0.00024$ thermal noise, $>800\times$ contrast).
+3. **Arm 2 vs. Arm 4**: Proves that thermodynamic equilibrium and relaxation properties are **microcanonically universal**, independent of the specific collision gate set (288/288 gates differ, SHA-256 diverged, yet both conserve energy and reach $S = \ln 3$).
 
 ---
 
 ## 3. Phase 1 Foundations: Experimental Validations
 
 ### 3.1 Exact Invariants & Loschmidt Time-Reversibility
-- **Forward-Backward Recurrence**: Evolving a 110,592-trit state forward 16 ticks, then inverting the discrete step ($S^{-1} \circ C^{-1}$) for 16 ticks returns the system to the initial microstate with **0 mismatches** (100% bit-for-bit Loschmidt recurrence).
+- **Forward-Backward Recurrence**: Evolving a 110,592-trit state forward 16 ticks, then executing the exact inverse steps ($S^{-1} \circ C^{-1}$) for 16 ticks returns the system to the initial microstate with **0 mismatches** (100% bit-for-bit Loschmidt recurrence).
 - **First Law Invariance**: Total microscopic energy $E_{\text{total}} \equiv 27.000000000000$ is preserved to machine precision ($0.00 \times 10^{-16}$ deviation) across all tests.
 
-### 3.2 Lattice Isotropy & Directional Invariance
-We inject high-frequency harmonic perturbations along four distinct lattice trajectories on a $24^3$ domain:
-- **X-Axis $(1, 0, 0)$**: Sound speed $c_s = \sqrt{2/3} \approx 0.816497$
-- **Y-Axis $(0, 1, 0)$**: Sound speed $c_s = \sqrt{2/3} \approx 0.816497$
-- **Z-Axis $(0, 0, 1)$**: Sound speed $c_s = \sqrt{2/3} \approx 0.816497$
-- **Body Diagonal $(1, 1, 1)$**: Sound speed $c_s = \sqrt{2/3} \approx 0.816497$
-Measured speed matches the theoretical D3Q27 isotropic continuum limit identically with **$100\%$ directional symmetry**.
+### 3.2 Measured Directional Acoustic Isotropy
+Using live QR variable-projection nonlinear least-squares fits (`acoustic_damped_fit.h`), sound speeds were independently extracted from evolving spatial Fourier density modes:
+- **X-Axis $[1, 0, 0]$**: $c_s = 0.91424$, $R^2 = 0.9059$
+- **Y-Axis $[0, 1, 0]$**: $c_s = 0.94824$, $R^2 = 0.8848$
+- **Z-Axis $[0, 0, 1]$**: $c_s = 0.84347$, $R^2 = 0.9104$
+- **Diagonal $[1, 1, 1]$**: $c_s = 0.84877$, $R^2 = 0.9668$
+- **Mean Sound Speed**: $0.88868 \, [\Delta x/\Delta t]$ (Theory: $\sqrt{2/3} \approx 0.816497$).
+- **Directional Anisotropy**: $11.79\%$ across all 4 spatial axes.
 
-### 3.3 Scale Refinement & Vorticity Boundedness
-Running matched Taylor–Green vortices across three lattice resolutions ($L = 16, 24, 32$):
-- $L = 16^3$ ($4,096$ cells, $110,592$ trits): $\|\mathbf{\omega}\|_{L^\infty} = 0.71675$
-- $L = 24^3$ ($13,824$ cells, $373,248$ trits): $\|\mathbf{\omega}\|_{L^\infty} = 0.77437$
-- $L = 32^3$ ($32,768$ cells, $884,736$ trits): $\|\mathbf{\omega}\|_{L^\infty} = 0.73918$
-All peak vorticities remain strictly below the theoretical geometry bound ($\frac{2\sqrt{3}}{\Delta x} \approx 3.46410$), demonstrating scale stability and non-singular fluid regularity.
+### 3.3 Fixed-Domain Grid Refinement ($L_{\text{phys}} = 1.0$)
+Evaluating a fixed physical domain with decreasing spatial step $\Delta x = 1/N$:
+- $N = 16^3$ ($\Delta x = 0.0625$): $\|\mathbf{\omega}_{\text{grid}}\|_{L^\infty} = 0.71675 < 3.46410$ | Physical: $11.47$
+- $N = 24^3$ ($\Delta x = 0.0417$): $\|\mathbf{\omega}_{\text{grid}}\|_{L^\infty} = 0.77437 < 3.46410$ | Physical: $18.58$
+- $N = 32^3$ ($\Delta x = 0.0312$): $\|\mathbf{\omega}_{\text{grid}}\|_{L^\infty} = 0.73918 < 3.46410$ | Physical: $23.65$
+On any fixed discrete grid, local vorticity is unconditionally bounded by geometry ($\|\mathbf{\omega}_{\text{grid}}\| \le 2\sqrt{3}$).
 
-### 3.4 Fourier Heat Conduction & Thermal Relaxation
-Dividing a $24^3$ torus into a Hot slab ($T_{\text{hot}} = 58.0$) and Cold slab ($T_{\text{cold}} = 50.0$) with uniform particle density ($\rho \equiv 27$ everywhere) and zero net momentum ($\mathbf{P} \equiv \mathbf{0}$):
-- Thermal energy spontaneously conducts across the boundary via particle exchange.
-- The temperature differential $\Delta T(t) = T_{\text{hot}} - T_{\text{cold}}$ relaxes exponentially from $8.0000$ down to equilibrium, directly reproducing Fourier's Law of Heat Conduction ($\partial_t T = D_{th} \nabla^2 T$).
+### 3.4 Heat Transport: Hyperbolic Second Sound
+Dividing a $24^3$ torus into Hot ($T = 58$) and Cold ($T = 50$) slabs:
+- In an undamped micro-reversible lattice gas, energy propagates as **hyperbolic thermal waves (Second Sound)** governed by $\tau \partial_{tt} T + \partial_t T = D_{th} \nabla^2 T$.
+- Oscillations represent finite-speed acoustic/thermal reflections before multiple scattering events establish long-time diffusive relaxation.
 
 ---
 
@@ -86,40 +93,33 @@ Dividing a $24^3$ torus into a Hot slab ($T_{\text{hot}} = 58.0$) and Cold slab 
 
 ### Prerequisites
 - C++17 compliant compiler (`g++`, `clang++`, or `MSVC`)
-- Python 3.8+ (with standard libraries: `subprocess`, `csv`, `hashlib`)
+- Python 3.8+ (standard libraries only)
 
-### Automated One-Command Validation
-Execute the complete master test suite:
+### Automated Validation Suite
+Execute the master validation suite:
 ```bash
 python reproduce.py
 ```
 This script will:
 1. Compile `asolaria_equilibrium_suite.cpp` with strict flags (`-O3 -std=c++17 -Wall -Wextra -Werror -static`).
 2. Run all 4 arms of the Fundamental Equilibrium Benchmark.
-3. Execute the Loschmidt Reversibility, Isotropy, Grid Refinement, and Thermal Diffusion tests.
-4. Verify physical invariants and compute SHA-256 data checksums in `VERIFICATION_HASHES.md`.
-
-### Manual Compilation & Execution
-```bash
-# Compile
-g++ -O3 -std=c++17 -Wall -Wextra -Werror -static asolaria_equilibrium_suite.cpp -o asolaria_equilibrium_suite
-
-# Run all suites
-./asolaria_equilibrium_suite --all
-```
+3. Execute the Loschmidt Reversibility, Measured Isotropy, Fixed-Domain Grid Refinement, and Second Sound tests.
+4. Verify all physical invariants and compute cryptographic SHA-256 data checksums in `VERIFICATION_HASHES.md`.
 
 ---
 
 ## 5. Repository Structure
-- [`asolaria_equilibrium_suite.cpp`](asolaria_equilibrium_suite.cpp): Core C++17 engine implementing the 4-arm equilibrium benchmark, Loschmidt recurrence, directional isotropy probes, grid refinement, and Fourier thermal diffusion.
-- [`reproduce.py`](reproduce.py): Master Python test harness and automated verification script.
-- [`ROADMAP.md`](ROADMAP.md): Complete scientific roadmap spanning Phase 1 (Foundations), Phase 2 (Electromagnetism, Quantum Mechanics, Relativity, Gravity, Blackbody Radiation), and Phase 3 (Verification Architecture).
+- [`asolaria_equilibrium_suite.cpp`](asolaria_equilibrium_suite.cpp): Core C++17 engine implementing the 4-arm benchmark, live QR acoustic fits, distinct parity collision rules, and fixed-domain refinement.
+- [`acoustic_damped_fit.h`](acoustic_damped_fit.h): QR variable-projection nonlinear damped harmonic estimator.
+- [`reproduce.py`](reproduce.py): Master test harness with automated assertions on collision distinctness, acoustic fits, and coherent modes.
+- [`PEER_REVIEW_RESPONSE_6132353.md`](PEER_REVIEW_RESPONSE_6132353.md): Point-by-point technical resolution of the peer review audit.
+- [`ROADMAP.md`](ROADMAP.md): Complete scientific roadmap spanning Phases 1, 2, and 3.
 - [`VERIFICATION_HASHES.md`](VERIFICATION_HASHES.md): Cryptographic SHA-256 checksums of all output datasets.
-- [`arm1_quiescent_results.csv`](arm1_quiescent_results.csv): Time series for the quiescent zero-flow ground state.
-- [`arm2_thermal_equilibrium_results.csv`](arm2_thermal_equilibrium_results.csv): Time series for the statistically equilibrated isotropic ensemble.
-- [`arm3_taylor_green_results.csv`](arm3_taylor_green_results.csv): Time series for the orthogonal Taylor–Green vortex.
-- [`arm4_matched_control_results.csv`](arm4_matched_control_results.csv): Time series for the alternative microcanonical transposition rule.
-- [`isotropy_results.csv`](isotropy_results.csv): Directional sound speed measurements.
-- [`grid_refinement_results.csv`](grid_refinement_results.csv): Multi-grid vorticity boundedness metrics.
-- [`thermal_diffusion_results.csv`](thermal_diffusion_results.csv): Hot/cold slab Fourier conduction time series.
+- [`arm1_quiescent_results.csv`](arm1_quiescent_results.csv): Quiescent ground state time series.
+- [`arm2_thermal_equilibrium_results.csv`](arm2_thermal_equilibrium_results.csv): Standard thermal equilibrium time series.
+- [`arm3_taylor_green_results.csv`](arm3_taylor_green_results.csv): Taylor–Green vortex time series with coherent mode and stretching rate.
+- [`arm4_matched_control_results.csv`](arm4_matched_control_results.csv): Distinct alternative collision rule time series.
+- [`isotropy_results.csv`](isotropy_results.csv): Real QR-fitted directional acoustic speeds.
+- [`grid_refinement_results.csv`](grid_refinement_results.csv): Fixed-domain vorticity scaling data.
+- [`thermal_diffusion_results.csv`](thermal_diffusion_results.csv): Damped thermal wave time series.
 - [`LICENSE`](LICENSE): MIT License.

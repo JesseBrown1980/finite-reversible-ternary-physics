@@ -36,3 +36,8 @@
 | `host8_native_pilot.hbp` | `8ff06802576671142260f780d4b52ac66898254ffea4a143587a0ebbfe3d8934` |
 | `host8_native_pilot.hbi` | `c4b9fda1d94934bb4b116473ab2d8cbdd4a2070e50efa36c196a5b3322b3102e` |
 | `host8_native_pilot_manifest.json` | `59d692db77e898e8e58f2d96dc5a5d09b39117c2b8576e053af2e0fb9103c6d0` |
+| `host8_pilot_1000.hbp` | `e231033a792b9a25d32fc5e9bc6560ba4da772c8798e7b87dd6fc5826c16516c` |
+| `host8_pilot_1000.hbi` | `78cb5912236b878f1dfcbde64fac8843803571c8fa10c1f0f48688e876985441` |
+| `host8_pilot_1000.anchor` | `0567bd815e300627505f56d90ba55ec3cf178080912aa69e76d7fa5c154d70fd` |
+| `host8_pilot_1000_manifest.json` | `9b5eb4ff5a6d9b4286186ced40f1fd45fbb33e522b674504372bbb3d042c05c5` |
+| `benchmark_host8_recovery.py` | `5b1dab56a691e1758242fab0280726e7dd2edb9884894bdb363ed607a74a7fb1` |

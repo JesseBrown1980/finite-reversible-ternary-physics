@@ -35,6 +35,16 @@
 #include <chrono>
 #include <ctime>
 #include <set>
+#include <future>
+#include <thread>
+#include <mutex>
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 using std::array;
 using std::vector;
@@ -401,7 +411,7 @@ static void step_universe(vector<u8>& state, vector<u8>& next_state,
             }
         }
     }
-    state = next_state;
+    state.swap(next_state);
 }
 
 static void step_universe_backward(vector<u8>& state, vector<u8>& next_state,
@@ -425,7 +435,7 @@ static void step_universe_backward(vector<u8>& state, vector<u8>& next_state,
             }
         }
     }
-    state = next_state;
+    state.swap(next_state);
 
     // 2. Involutive Collision Stage in reverse sequence (j = gates - 1 down to 0)
     for (int cell = 0; cell < V; ++cell) {
@@ -1108,6 +1118,10 @@ struct IntegerInvariants {
 static IntegerInvariants compute_integer_invariants(const vector<u8>& st, const array<Velocity, K>& vel) {
     IntegerInvariants inv;
     size_t num_cells = st.size() / K;
+    int vel_e[K];
+    for (int k = 0; k < K; ++k) {
+        vel_e[k] = vel[k].x * vel[k].x + vel[k].y * vel[k].y + vel[k].z * vel[k].z;
+    }
     for (size_t cell = 0; cell < num_cells; ++cell) {
         size_t base = cell * K;
         for (int k = 0; k < K; ++k) {
@@ -1116,7 +1130,7 @@ static IntegerInvariants compute_integer_invariants(const vector<u8>& st, const 
             inv.px += n * vel[k].x;
             inv.py += n * vel[k].y;
             inv.pz += n * vel[k].z;
-            inv.energy_2x += n * (vel[k].x * vel[k].x + vel[k].y * vel[k].y + vel[k].z * vel[k].z);
+            inv.energy_2x += n * vel_e[k];
         }
     }
     return inv;
@@ -1300,28 +1314,241 @@ static bool run_host8_boundary_mode_a(const string& custom_dir = "", const strin
     return all_ok;
 }
 
-static inline std::string compute_window_hash(const std::string& prev_hash,
-                                              int sec, int win, u64 room_start,
-                                              const std::string& source_sha,
-                                              const std::string& sh,
-                                              const std::string& status) {
+static string get_executable_sha256() {
+#if defined(_WIN32)
+    char path[MAX_PATH];
+    if (GetModuleFileNameA(NULL, path, MAX_PATH) == 0) return "EXE_SHA256_UNAVAILABLE";
+    std::ifstream f(path, std::ios::binary);
+    if (!f.is_open()) return "EXE_SHA256_UNAVAILABLE";
+    vector<u8> buf((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    return asolaria::SHA256::hash_bytes(buf.data(), buf.size());
+#else
+    std::ifstream f("/proc/self/exe", std::ios::binary);
+    if (!f.is_open()) return "EXE_SHA256_UNAVAILABLE";
+    vector<u8> buf((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    return asolaria::SHA256::hash_bytes(buf.data(), buf.size());
+#endif
+}
+
+static string compute_file_sha256(const string& path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f.is_open()) return "";
+    asolaria::SHA256 sha;
+    char buf[65536];
+    while (f.read(buf, sizeof(buf))) {
+        sha.update(reinterpret_cast<const uint8_t*>(buf), f.gcount());
+    }
+    if (f.gcount() > 0) {
+        sha.update(reinterpret_cast<const uint8_t*>(buf), f.gcount());
+    }
+    return sha.finalize();
+}
+
+static const char* GIT_COMMIT_HASH = "53f9432d112c7b94cdf7066d07cda36bc56879f8";
+static const char* KERNEL_ID = "D3Q27_INVOLUTIVE_288GATES_V1";
+static const char* LATTICE_CONFIG = "L24_V13824_K27_BALANCED_TERNARY";
+
+static const std::string GENESIS_CHAIN_HASH_V1 = asolaria::SHA256::hash_string("GENESIS|asolaria.host8.mode_a.v1");
+static const std::string GENESIS_CHAIN_HASH_V2 = asolaria::SHA256::hash_string("GENESIS|asolaria.host8.mode_a.v2");
+static const std::string GENESIS_CHAIN_HASH = GENESIS_CHAIN_HASH_V2;
+
+static inline std::string compute_window_hash_v1(const std::string& prev_hash,
+                                                 int sec, int win, u64 room_start,
+                                                 const std::string& source_sha,
+                                                 const std::string& sh,
+                                                 const std::string& status) {
     std::string data = prev_hash + "|" + std::to_string(sec) + "|" +
                        std::to_string(win) + "|" + std::to_string(room_start) + "|" +
                        source_sha + "|" + sh + "|" + status;
     return asolaria::SHA256::hash_string(data);
 }
 
-static const std::string GENESIS_CHAIN_HASH = asolaria::SHA256::hash_string("GENESIS|asolaria.host8.mode_a.v1");
+static inline std::string compute_window_hash_v2(const std::string& prev_hash,
+                                                 int sec, int win, u64 room_start,
+                                                 const std::string& source_sha,
+                                                 const std::string& sh,
+                                                 const std::string& status,
+                                                 const std::string& physics_receipt_sha) {
+    std::string data = prev_hash + "|" + std::to_string(sec) + "|" +
+                       std::to_string(win) + "|" + std::to_string(room_start) + "|" +
+                       source_sha + "|" + sh + "|" + status + "|" + physics_receipt_sha;
+    return asolaria::SHA256::hash_string(data);
+}
+
+static inline std::string compute_window_hash(const std::string& prev_hash,
+                                              int sec, int win, u64 room_start,
+                                              const std::string& source_sha,
+                                              const std::string& sh,
+                                              const std::string& status) {
+    return compute_window_hash_v1(prev_hash, sec, win, room_start, source_sha, sh, status);
+}
+
+static inline std::string compute_physics_receipt_payload(int sec, int win, u64 room_start, u64 room_end,
+                                                          int rooms, u64 overlap, u64 unique, u64 cum_rooms,
+                                                          const std::string& source_sha, const std::string& sh,
+                                                          const std::string& auth, double dE, u64 rev_mismatches,
+                                                          int forward_ticks, int reverse_ticks,
+                                                          const std::string& physics_status) {
+    std::ostringstream ss;
+    ss << "HOST8WIN|sec=" << sec
+       << "|win=" << win
+       << "|room_start=" << room_start
+       << "|room_end=" << room_end
+       << "|rooms=" << rooms
+       << "|overlap=" << overlap
+       << "|unique=" << unique
+       << "|cum_rooms=" << cum_rooms
+       << "|source_sha256=" << source_sha
+       << "|sh=" << sh
+       << "|auth=" << auth
+       << "|dE=" << dE
+       << "|rev_mismatches=" << rev_mismatches
+       << "|forward_ticks=" << forward_ticks
+       << "|reverse_ticks=" << reverse_ticks
+       << "|physics_status=" << physics_status;
+    return ss.str();
+}
+
+static bool write_trust_anchor(const string& anchor_path,
+                               const string& hbp_path,
+                               const string& hbi_path,
+                               int latest_sec, int latest_win,
+                               u64 total_windows, u64 total_rooms,
+                               const string& chain_hash,
+                               const string& exe_sha256,
+                               const string& commit_hash) {
+    string hbp_sha = compute_file_sha256(hbp_path);
+    string hbi_sha = compute_file_sha256(hbi_path);
+    string sig_payload = std::to_string(latest_sec) + "|" +
+                         std::to_string(latest_win) + "|" +
+                         std::to_string(total_windows) + "|" +
+                         std::to_string(total_rooms) + "|" +
+                         chain_hash + "|" +
+                         hbp_sha + "|" +
+                         hbi_sha + "|" +
+                         exe_sha256 + "|" +
+                         commit_hash;
+    string anchor_sig = asolaria::SHA256::hash_string(sig_payload);
+
+    std::ofstream out(anchor_path, std::ios::trunc);
+    if (!out.is_open()) return false;
+    out << "ASOLARIA_HOST8_TRUST_ANCHOR|version=2"
+        << "|seat=ACER-CLAUDE-FABLE5"
+        << "|epoch=20261024_STAGE_G"
+        << "|commit=" << commit_hash
+        << "|kernel_id=" << KERNEL_ID
+        << "|lattice=" << LATTICE_CONFIG
+        << "|exe_sha256=" << exe_sha256
+        << "|latest_sec=" << latest_sec
+        << "|latest_win=" << latest_win
+        << "|total_windows=" << total_windows
+        << "|total_rooms=" << total_rooms
+        << "|root_hbp_sha256=" << hbp_sha
+        << "|root_hbi_sha256=" << hbi_sha
+        << "|chain_hash=" << chain_hash
+        << "|anchor_sig=" << anchor_sig
+        << "|json=0\n";
+    out.flush();
+    return true;
+}
+
+static bool verify_trust_anchor(const string& anchor_path,
+                                const string& hbp_path,
+                                const string& hbi_path,
+                                string& out_err) {
+    std::ifstream in(anchor_path);
+    if (!in.is_open()) {
+        out_err = "Cannot open trust anchor file: " + anchor_path;
+        return false;
+    }
+    string line;
+    if (!std::getline(in, line) || line.rfind("ASOLARIA_HOST8_TRUST_ANCHOR|", 0) != 0) {
+        out_err = "Invalid anchor header in: " + anchor_path;
+        return false;
+    }
+    std::stringstream ss(line);
+    string token;
+    std::map<string, string> fields;
+    while (std::getline(ss, token, '|')) {
+        size_t eq = token.find('=');
+        if (eq != string::npos) fields[token.substr(0, eq)] = token.substr(eq + 1);
+    }
+    if (!fields.count("anchor_sig") || !fields.count("chain_hash") ||
+        !fields.count("root_hbp_sha256") || !fields.count("root_hbi_sha256") ||
+        !fields.count("latest_sec") || !fields.count("latest_win") ||
+        !fields.count("total_windows") || !fields.count("total_rooms") ||
+        !fields.count("exe_sha256") || !fields.count("commit")) {
+        out_err = "Anchor file missing required fields";
+        return false;
+    }
+
+    string sig_payload = fields["latest_sec"] + "|" +
+                         fields["latest_win"] + "|" +
+                         fields["total_windows"] + "|" +
+                         fields["total_rooms"] + "|" +
+                         fields["chain_hash"] + "|" +
+                         fields["root_hbp_sha256"] + "|" +
+                         fields["root_hbi_sha256"] + "|" +
+                         fields["exe_sha256"] + "|" +
+                         fields["commit"];
+    string expected_sig = asolaria::SHA256::hash_string(sig_payload);
+    if (fields["anchor_sig"] != expected_sig) {
+        out_err = "Tampered or invalid anchor signature in: " + anchor_path;
+        return false;
+    }
+
+    string actual_hbp_sha = compute_file_sha256(hbp_path);
+    if (actual_hbp_sha != fields["root_hbp_sha256"]) {
+        out_err = "Anchor root_hbp_sha256 mismatch against " + hbp_path;
+        return false;
+    }
+    string actual_hbi_sha = compute_file_sha256(hbi_path);
+    if (actual_hbi_sha != fields["root_hbi_sha256"]) {
+        out_err = "Anchor root_hbi_sha256 mismatch against " + hbi_path;
+        return false;
+    }
+
+    return true;
+}
+
+static bool truncate_file(const string& path, u64 new_size) {
+#ifdef _WIN32
+    HANDLE h = CreateFileA(path.c_str(), GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER li;
+    li.QuadPart = new_size;
+    if (!SetFilePointerEx(h, li, NULL, FILE_BEGIN)) {
+        CloseHandle(h);
+        return false;
+    }
+    bool res = SetEndOfFile(h);
+    CloseHandle(h);
+    return res;
+#else
+    return truncate(path.c_str(), new_size) == 0;
+#endif
+}
 
 static bool verify_host8_hbp_hbi(const string& hbp_path, const string& hbi_path,
                                  u64& out_valid_count, string& out_last_hash,
                                  std::set<std::pair<int, int>>& out_completed_set,
-                                 u64& out_hbp_file_size, string& out_err) {
+                                 u64& out_hbp_file_size, string& out_err,
+                                 const string& reauth_source_dir = "",
+                                 const string& anchor_path = "",
+                                 bool repair_if_interrupted = false) {
     out_valid_count = 0;
     out_last_hash = GENESIS_CHAIN_HASH;
     out_hbp_file_size = 0;
     out_completed_set.clear();
     out_err.clear();
+
+    if (!anchor_path.empty()) {
+        string anchor_err;
+        if (!verify_trust_anchor(anchor_path, hbp_path, hbi_path, anchor_err)) {
+            out_err = "Trust anchor verification failure: " + anchor_err;
+            return false;
+        }
+    }
 
     std::ifstream hbp_file(hbp_path, std::ios::binary);
     if (!hbp_file.is_open()) {
@@ -1347,12 +1574,22 @@ static bool verify_host8_hbp_hbi(const string& hbp_path, const string& hbi_path,
         return false;
     }
 
-    string prev_hash = GENESIS_CHAIN_HASH;
+    bool is_v1 = (hbi_line.find("schema=asolaria.host8.index.v1") != string::npos);
+    string prev_hash = is_v1 ? GENESIS_CHAIN_HASH_V1 : GENESIS_CHAIN_HASH_V2;
     bool checked_hbp_hdr = false;
+    u64 last_valid_hbp_offset = 0;
+    u64 last_valid_hbi_offset = hbi_file.tellg();
+
+    const std::map<int, string> auth_hashes = {
+        {0,   "2dfe7d757ecb012475806b86fcdefc602680d042db836ffbcb2bfe924f2a18ee"},
+        {187, "6752ab9e2603cc5042f7c7a41c3ddc48ae5571fd0aeb945d0a3f63b1a948a652"},
+        {374, "963805be806e8a290aab8dee48b0d214d03015c84e02bf844f0de87e2b37c10a"}
+    };
 
     while (std::getline(hbi_file, hbi_line)) {
         if (hbi_line.empty()) continue;
         if (hbi_line.rfind("HBI|", 0) != 0) {
+            if (repair_if_interrupted && last_valid_hbp_offset > 0) break;
             out_err = "Malformed HBI record: " + hbi_line;
             return false;
         }
@@ -1371,6 +1608,7 @@ static bool verify_host8_hbp_hbi(const string& hbp_path, const string& hbi_path,
             !fields.count("offset") || !fields.count("len") || !fields.count("source_sha") ||
             !fields.count("sh") || !fields.count("hbp_sha256") || !fields.count("hash") ||
             !fields.count("status")) {
+            if (repair_if_interrupted && last_valid_hbp_offset > 0) break;
             out_err = "HBI record missing required fields: " + hbi_line;
             return false;
         }
@@ -1405,11 +1643,13 @@ static bool verify_host8_hbp_hbi(const string& hbp_path, const string& hbi_path,
                 out_err = "Invalid HOST8HDR in HBP file: " + hbp_path;
                 return false;
             }
+            last_valid_hbp_offset = offset;
             checked_hbp_hdr = true;
         }
 
         // Seek and verify exact HBP byte slice
         if (offset + len > out_hbp_file_size) {
+            if (repair_if_interrupted && last_valid_hbp_offset > 0) break;
             out_err = "HBI offset+len exceeds HBP file size on sec " + std::to_string(sec) + " win " + std::to_string(win);
             return false;
         }
@@ -1417,6 +1657,7 @@ static bool verify_host8_hbp_hbi(const string& hbp_path, const string& hbi_path,
         vector<char> hbp_buf(len);
         hbp_file.read(hbp_buf.data(), len);
         if (static_cast<u64>(hbp_file.gcount()) != len) {
+            if (repair_if_interrupted && last_valid_hbp_offset > 0) break;
             out_err = "HBP premature EOF reading sec " + std::to_string(sec) + " win " + std::to_string(win);
             return false;
         }
@@ -1427,8 +1668,132 @@ static bool verify_host8_hbp_hbi(const string& hbp_path, const string& hbi_path,
             return false;
         }
 
-        // Cryptographic hash chain validation
-        string expected_cur_hash = compute_window_hash(prev_hash, sec, win, room_start, source_sha, sh, status);
+        // Bidirectional verification of actual HBP row fields
+        string hbp_str(hbp_buf.data(), len);
+        if (hbp_str.rfind("HOST8WIN|", 0) != 0 || hbp_str.find("json=0") == string::npos) {
+            out_err = "HBP record malformed on sec " + std::to_string(sec) + " win " + std::to_string(win);
+            return false;
+        }
+
+        std::stringstream hbp_ss(hbp_str);
+        string hbp_tok;
+        std::map<string, string> hbp_fields;
+        while (std::getline(hbp_ss, hbp_tok, '|')) {
+            size_t eq = hbp_tok.find('=');
+            if (eq != string::npos) {
+                hbp_fields[hbp_tok.substr(0, eq)] = hbp_tok.substr(eq + 1);
+            }
+        }
+
+        if (std::stoi(hbp_fields["sec"]) != sec ||
+            std::stoi(hbp_fields["win"]) != win ||
+            std::stoull(hbp_fields["room_start"]) != room_start ||
+            hbp_fields["source_sha256"] != source_sha ||
+            hbp_fields["sh"] != sh ||
+            hbp_fields["physics_status"] != status ||
+            hbp_fields["hash"] != record_hash ||
+            hbp_fields["prev_hash"] != prev_hash) {
+            out_err = "HBP/HBI bidirectional mismatch on sec " + std::to_string(sec) + " win " + std::to_string(win);
+            return false;
+        }
+
+        int rooms = std::stoi(hbp_fields["rooms"]);
+        if (rooms != 13824) {
+            out_err = "HBP invalid rooms count: " + std::to_string(rooms);
+            return false;
+        }
+        if (win < 7233) {
+            if (room_start != static_cast<u64>(win) * 13824ULL ||
+                std::stoull(hbp_fields["room_end"]) != room_start + 13824ULL ||
+                std::stoull(hbp_fields["overlap"]) != 0 ||
+                std::stoull(hbp_fields["unique"]) != 13824ULL) {
+                out_err = "HBP canonical geometry mismatch on sec " + std::to_string(sec) + " win " + std::to_string(win);
+                return false;
+            }
+        } else if (win == 7233) {
+            if (room_start != 99986176ULL ||
+                std::stoull(hbp_fields["room_end"]) != 100000000ULL ||
+                std::stoull(hbp_fields["overlap"]) != 2816ULL ||
+                std::stoull(hbp_fields["unique"]) != 11008ULL) {
+                out_err = "HBP W7233 boundary geometry mismatch on sec " + std::to_string(sec);
+                return false;
+            }
+        }
+
+        if (hbp_fields["physics_status"] != "VERIFIED") {
+            out_err = "HBP physics_status not VERIFIED on sec " + std::to_string(sec) + " win " + std::to_string(win);
+            return false;
+        }
+        double dE = std::stod(hbp_fields["dE"]);
+        if (dE > 1e-12) {
+            out_err = "HBP dE conservation failure on sec " + std::to_string(sec) + " win " + std::to_string(win);
+            return false;
+        }
+        u64 rev_mismatches = std::stoull(hbp_fields["rev_mismatches"]);
+        if (rev_mismatches != 0) {
+            out_err = "HBP Loschmidt mismatch on sec " + std::to_string(sec) + " win " + std::to_string(win);
+            return false;
+        }
+        int f_ticks = std::stoi(hbp_fields["forward_ticks"]);
+        int r_ticks = std::stoi(hbp_fields["reverse_ticks"]);
+        if (f_ticks != 48 || r_ticks != 16) {
+            out_err = "HBP tick count mismatch on sec " + std::to_string(sec) + " win " + std::to_string(win);
+            return false;
+        }
+        string auth = hbp_fields["auth"];
+        if (auth != "PINNED_MATCH" && auth != "HASH_RECORDED") {
+            out_err = "HBP auth status invalid: " + auth + " on sec " + std::to_string(sec) + " win " + std::to_string(win);
+            return false;
+        }
+
+        // Source Re-authentication against physical disk (if enabled)
+        if (!reauth_source_dir.empty()) {
+            std::ostringstream p_ss;
+            p_ss << reauth_source_dir << "/sector-" << std::setw(3) << std::setfill('0') << sec << ".rooms";
+            std::ifstream sec_disk(p_ss.str(), std::ios::binary);
+            if (!sec_disk.is_open()) {
+                out_err = "Cannot reauthenticate: missing physical sector file " + p_ss.str();
+                return false;
+            }
+            sec_disk.seekg(room_start * 8);
+            vector<char> disk_buf(110592);
+            sec_disk.read(disk_buf.data(), 110592);
+            if (sec_disk.gcount() != 110592) {
+                out_err = "Physical source disk read failure on sec " + std::to_string(sec) + " win " + std::to_string(win);
+                return false;
+            }
+            string disk_sha = asolaria::SHA256::hash_bytes(reinterpret_cast<const uint8_t*>(disk_buf.data()), 110592);
+            if (disk_sha != source_sha) {
+                out_err = "Physical source disk block mismatch on sec " + std::to_string(sec) + " win " + std::to_string(win);
+                return false;
+            }
+            if (room_start == 0 && auth_hashes.count(sec)) {
+                if (disk_sha != auth_hashes.at(sec)) {
+                    out_err = "Physical source pinned hash mismatch on sec " + std::to_string(sec);
+                    return false;
+                }
+            }
+        }
+
+        // Cryptographic Hash Chain Validation
+        string expected_cur_hash;
+        if (is_v1) {
+            expected_cur_hash = compute_window_hash_v1(prev_hash, sec, win, room_start, source_sha, sh, status);
+        } else {
+            string payload = compute_physics_receipt_payload(sec, win, room_start, std::stoull(hbp_fields["room_end"]),
+                                                             rooms, std::stoull(hbp_fields["overlap"]),
+                                                             std::stoull(hbp_fields["unique"]),
+                                                             std::stoull(hbp_fields["cum_rooms"]),
+                                                             source_sha, sh, auth, dE, rev_mismatches,
+                                                             f_ticks, r_ticks, status);
+            string physics_receipt_sha = asolaria::SHA256::hash_string(payload);
+            if (hbp_fields.count("receipt_sha") && hbp_fields["receipt_sha"] != physics_receipt_sha) {
+                out_err = "HBP receipt_sha mismatch on sec " + std::to_string(sec) + " win " + std::to_string(win);
+                return false;
+            }
+            expected_cur_hash = compute_window_hash_v2(prev_hash, sec, win, room_start, source_sha, sh, status, physics_receipt_sha);
+        }
+
         if (record_hash != expected_cur_hash) {
             out_err = "HASH chain broken on sec " + std::to_string(sec) + " win " + std::to_string(win);
             return false;
@@ -1437,10 +1802,164 @@ static bool verify_host8_hbp_hbi(const string& hbp_path, const string& hbi_path,
         out_completed_set.insert({sec, win});
         prev_hash = record_hash;
         out_valid_count++;
+        last_valid_hbp_offset = offset + len;
+        last_valid_hbi_offset = hbi_file.tellg();
+    }
+
+    if (repair_if_interrupted && last_valid_hbp_offset > 0 && last_valid_hbp_offset < out_hbp_file_size) {
+        hbp_file.close();
+        hbi_file.close();
+        truncate_file(hbp_path, last_valid_hbp_offset);
+        truncate_file(hbi_path, last_valid_hbi_offset);
+        out_hbp_file_size = last_valid_hbp_offset;
+        std::cout << "[REPAIR] Recovered from partial commit: truncated HBP at " << last_valid_hbp_offset
+                  << " bytes, HBI at " << last_valid_hbi_offset << " bytes (" << out_valid_count << " windows intact).\n";
     }
 
     out_last_hash = prev_hash;
     return true;
+}
+
+struct WindowJob {
+    int sec;
+    int win;
+    u64 start_room_offset;
+    u64 end_room_offset;
+    int rooms;
+    u64 overlap_rooms;
+    u64 unique_rooms;
+    u64 cumulative_sector_rooms;
+};
+
+struct WindowSimResult {
+    WindowJob job;
+    string win_sha256;
+    string sh;
+    string auth_status;
+    double dE;
+    u64 mismatches;
+    bool int_inv_ok;
+    bool win_ok;
+    bool read_ok;
+    string receipt_payload;
+    string receipt_sha;
+};
+
+static WindowSimResult simulate_single_mode_a_window(const string& dir, const WindowJob& job,
+                                                     const vector<Collision>& col, const array<Velocity, K>& v,
+                                                     const std::map<int, string>& auth_hashes) {
+    const int L = 24;
+    const int V = L * L * L;
+    const u64 WINDOW_BYTES = static_cast<u64>(V) * 8;
+    const int TICKS_FORWARD = 48;
+    const int TICKS_LOSCHMIDT = 16;
+
+    WindowSimResult res;
+    res.job = job;
+    res.read_ok = true;
+    res.win_ok = true;
+    res.int_inv_ok = true;
+    res.dE = 0.0;
+    res.mismatches = 0;
+
+    std::ostringstream path_ss;
+    path_ss << dir << "/sector-" << std::setw(3) << std::setfill('0') << job.sec << ".rooms";
+    string path = path_ss.str();
+
+    std::ifstream sector_file(path, std::ios::binary);
+    if (!sector_file.is_open()) {
+        res.read_ok = false;
+        res.win_ok = false;
+        return res;
+    }
+
+    sector_file.seekg(job.start_room_offset * 8);
+    vector<u64> stubs(V);
+    sector_file.read(reinterpret_cast<char*>(stubs.data()), WINDOW_BYTES);
+    if (static_cast<u64>(sector_file.gcount()) != WINDOW_BYTES) {
+        res.read_ok = false;
+        res.win_ok = false;
+        return res;
+    }
+
+    res.win_sha256 = asolaria::SHA256::hash_bytes(reinterpret_cast<const uint8_t*>(stubs.data()), WINDOW_BYTES);
+    res.sh = res.win_sha256.substr(0, 16);
+
+    if (job.start_room_offset == 0 && auth_hashes.count(job.sec)) {
+        if (res.win_sha256 == auth_hashes.at(job.sec)) {
+            res.auth_status = "PINNED_MATCH";
+        } else {
+            res.auth_status = "HASH_MISMATCH";
+            res.win_ok = false;
+        }
+    } else {
+        res.auth_status = "HASH_RECORDED";
+    }
+
+    // Decode 8-byte process rooms to 27 velocity trits
+    vector<u8> state(V * K, 0);
+    vector<u8> sim_state(V * K, 0);
+    vector<u8> next_state(V * K, 0);
+    vector<u8> rev_state(V * K, 0);
+
+    for (int cell = 0; cell < V; ++cell) {
+        u64 val = stubs[cell];
+        int base = cell * K;
+        for (int k = 0; k < K; ++k) {
+            state[base + k] = static_cast<u8>(val % 3);
+            val /= 3;
+        }
+    }
+
+    // Invariant tracking & forward simulation (48 ticks)
+    IntegerInvariants init_inv = compute_integer_invariants(state, v);
+    sim_state = state;
+    for (int t = 0; t < TICKS_FORWARD; ++t) {
+        step_universe(sim_state, next_state, col, v, L, t);
+        IntegerInvariants cur_inv = compute_integer_invariants(sim_state, v);
+        if (cur_inv.mass != init_inv.mass || cur_inv.px != init_inv.px ||
+            cur_inv.py != init_inv.py || cur_inv.pz != init_inv.pz ||
+            cur_inv.energy_2x != init_inv.energy_2x) {
+            res.int_inv_ok = false;
+        }
+    }
+    IntegerInvariants final_inv = compute_integer_invariants(sim_state, v);
+    res.dE = std::abs(static_cast<double>(final_inv.energy_2x - init_inv.energy_2x) / 2.0);
+
+    // Reversibility check (16 forward + 16 reverse Loschmidt ticks)
+    rev_state = state;
+    for (int t = 0; t < TICKS_LOSCHMIDT; ++t) {
+        step_universe(rev_state, next_state, col, v, L, t);
+        IntegerInvariants cur_inv = compute_integer_invariants(rev_state, v);
+        if (cur_inv.mass != init_inv.mass || cur_inv.px != init_inv.px ||
+            cur_inv.py != init_inv.py || cur_inv.pz != init_inv.pz ||
+            cur_inv.energy_2x != init_inv.energy_2x) {
+            res.int_inv_ok = false;
+        }
+    }
+    for (int t = TICKS_LOSCHMIDT - 1; t >= 0; --t) {
+        step_universe_backward(rev_state, next_state, col, v, L, t);
+        IntegerInvariants cur_inv = compute_integer_invariants(rev_state, v);
+        if (cur_inv.mass != init_inv.mass || cur_inv.px != init_inv.px ||
+            cur_inv.py != init_inv.py || cur_inv.pz != init_inv.pz ||
+            cur_inv.energy_2x != init_inv.energy_2x) {
+            res.int_inv_ok = false;
+        }
+    }
+
+    for (size_t i = 0; i < state.size(); ++i) {
+        if (state[i] != rev_state[i]) res.mismatches++;
+    }
+
+    res.win_ok = (res.int_inv_ok && (res.mismatches == 0) && (res.dE < 1e-12) && (res.auth_status != "HASH_MISMATCH"));
+    string physics_status = res.win_ok ? "VERIFIED" : "FAIL";
+
+    res.receipt_payload = compute_physics_receipt_payload(job.sec, job.win, job.start_room_offset, job.end_room_offset,
+                                                          V, job.overlap_rooms, job.unique_rooms, job.cumulative_sector_rooms,
+                                                          res.win_sha256, res.sh, res.auth_status, res.dE, res.mismatches,
+                                                          TICKS_FORWARD, TICKS_LOSCHMIDT, physics_status);
+    res.receipt_sha = asolaria::SHA256::hash_string(res.receipt_payload);
+    return res;
 }
 
 static bool run_host8_mode_a(const string& custom_dir = "",
@@ -1452,7 +1971,11 @@ static bool run_host8_mode_a(const string& custom_dir = "",
                             const string& hbi_path = "host8_mode_a.hbi",
                             const string& ledger_path = "host8_mode_a_checkpoint.ledger",
                             const string& manifest_path = "",
-                            bool strict_mode = true) {
+                            bool strict_mode = true,
+                            const string& anchor_path = "",
+                            bool reauth_source = false,
+                            bool repair_interrupted = false,
+                            int num_threads = 0) {
     auto t_start = std::chrono::steady_clock::now();
     std::clock_t c_start = std::clock();
 
@@ -1483,27 +2006,42 @@ static bool run_host8_mode_a(const string& custom_dir = "",
         {374, "963805be806e8a290aab8dee48b0d214d03015c84e02bf844f0de87e2b37c10a"}
     };
 
+    string resolved_anchor = anchor_path;
+    if (resolved_anchor.empty()) {
+        size_t dot = hbp_path.find_last_of('.');
+        resolved_anchor = (dot != string::npos ? hbp_path.substr(0, dot) : hbp_path) + ".anchor";
+    }
+
+    int threads_to_use = num_threads;
+    if (threads_to_use <= 0) {
+        unsigned int hw = std::thread::hardware_concurrency();
+        threads_to_use = (hw > 0 ? static_cast<int>(hw) : 4);
+    }
+
     std::cout << "\n=======================================================================\n";
-    std::cout << " ASOLARIA 300 GB HOST8 MODE A BATCH PHYSICS EXECUTOR\n";
+    std::cout << " ASOLARIA 300 GB HOST8 MODE A BATCH PHYSICS EXECUTOR (STAGE G)\n";
     std::cout << " Directory          : " << dir << "\n";
     std::cout << " Sector Range       : [" << start_sector << ", " << end_sector << "] (" << (end_sector - start_sector + 1) << " sectors)\n";
     std::cout << " Windows per Sector : " << WINDOWS_PER_SECTOR << " (7,233 non-overlapping + 1 boundary overlap)\n";
     std::cout << " Max Windows to Run : " << (max_windows_to_run > 0 ? std::to_string(max_windows_to_run) : "ALL") << "\n";
     std::cout << " Native HBP Receipt : " << hbp_path << " (Resumable: " << (resume ? "YES" : "NO") << ")\n";
     std::cout << " Native HBI Index   : " << hbi_path << "\n";
+    std::cout << " Trust Anchor File  : " << resolved_anchor << "\n";
+    std::cout << " Worker Threads     : " << threads_to_use << "\n";
     std::cout << " Checkpoint Seal    : HBI-HBP-SHA-SH-HASH (traversal: HBI->HBP->SHA->SH->HASH)\n";
+    std::cout << " Schema Version     : asolaria.host8.mode_a.v2 (hardened receipt binding)\n";
     std::cout << " Lattice Dimensions : " << L << "x" << L << "x" << L << " = " << V << " rooms (" << (V * K) << " trits per window)\n";
     std::cout << " Physics Kernel     : D3Q27 integer collision & streaming (0 float ops)\n";
     std::cout << " Conservation & Rev : 48 forward ticks + 16 forward / 16 reverse Loschmidt ticks\n";
-    std::cout << " Memory Model       : Bounded vector reuse (< 2 MB static RAM)\n";
     std::cout << " Mode Demarcation   : MODE A (Independent bounded windows with local periodic BC)\n";
     std::cout << "=======================================================================\n";
 
     std::set<std::pair<int, int>> completed_set;
     u64 resumed_windows = 0;
     u64 resumed_rooms = 0;
-    string prev_hash = GENESIS_CHAIN_HASH;
+    string prev_hash = GENESIS_CHAIN_HASH_V2;
     u64 hbp_current_offset = 0;
+    bool is_v1_checkpoint = false;
 
     bool hbp_exists = std::ifstream(hbp_path, std::ios::binary).is_open();
     bool hbi_exists = std::ifstream(hbi_path).is_open();
@@ -1512,7 +2050,8 @@ static bool run_host8_mode_a(const string& custom_dir = "",
         u64 valid_cnt = 0;
         string last_hash, err;
         u64 hbp_file_sz = 0;
-        bool v_ok = verify_host8_hbp_hbi(hbp_path, hbi_path, valid_cnt, last_hash, completed_set, hbp_file_sz, err);
+        bool v_ok = verify_host8_hbp_hbi(hbp_path, hbi_path, valid_cnt, last_hash, completed_set, hbp_file_sz, err,
+                                          reauth_source ? dir : "", "", repair_interrupted);
         if (!v_ok) {
             std::cerr << "[ERROR] Native HBP/HBI checkpoint verification failed: " << err << "\n";
             return false;
@@ -1524,10 +2063,17 @@ static bool run_host8_mode_a(const string& custom_dir = "",
         }
         prev_hash = last_hash;
         hbp_current_offset = hbp_file_sz;
+
+        // Check if resumed checkpoint was v1
+        std::ifstream hbi_check(hbi_path);
+        string hdr_line;
+        if (std::getline(hbi_check, hdr_line)) {
+            if (hdr_line.find("schema=asolaria.host8.index.v1") != string::npos) is_v1_checkpoint = true;
+        }
+
         std::cout << "[NATIVE HBP/HBI] Resumed " << resumed_windows << " validated windows with intact HASH chain.\n"
                   << "                 HBP offset at byte " << hbp_current_offset << " | Last HASH: " << prev_hash.substr(0, 16) << "...\n";
     } else if (resume && !ledger_path.empty() && std::ifstream(ledger_path).is_open()) {
-        // Fallback: load completed from legacy ledger CSV if HBP not present
         std::ifstream ledger_in(ledger_path);
         string line;
         bool header = true;
@@ -1561,7 +2107,7 @@ static bool run_host8_mode_a(const string& custom_dir = "",
         hbp_out.open(hbp_path, std::ios::app | std::ios::binary);
     } else {
         hbp_out.open(hbp_path, std::ios::trunc | std::ios::binary);
-        string hbp_hdr = "HOST8HDR|schema=asolaria.host8.mode_a.v1|seat=ACER-CLAUDE-FABLE5|version=0.2.0|mode=MODE_A|seal=HBI-HBP-SHA-SH-HASH|traversal=HBI->HBP->SHA->SH->HASH|compiler_version=" + string(__VERSION__) + "|migrated_from=NONE|json=0\n";
+        string hbp_hdr = "HOST8HDR|schema=asolaria.host8.mode_a.v2|seat=ACER-CLAUDE-FABLE5|version=0.3.0|mode=MODE_A|seal=HBI-HBP-SHA-SH-HASH|traversal=HBI->HBP->SHA->SH->HASH|commit=" + string(GIT_COMMIT_HASH) + "|kernel_id=" + string(KERNEL_ID) + "|lattice=" + string(LATTICE_CONFIG) + "|compiler_version=" + string(__VERSION__) + "|exe_sha256=" + get_executable_sha256() + "|migrated_from=NONE|json=0\n";
         hbp_out.write(hbp_hdr.data(), hbp_hdr.size());
         hbp_out.flush();
         hbp_current_offset = hbp_hdr.size();
@@ -1577,7 +2123,7 @@ static bool run_host8_mode_a(const string& custom_dir = "",
         hbi_out.open(hbi_path, std::ios::app);
     } else {
         hbi_out.open(hbi_path, std::ios::trunc);
-        string hbi_hdr = "HBIHDR|for=" + hbp_filename + "|schema=asolaria.host8.index.v1|seal=HBI-HBP-SHA-SH-HASH|traversal=HBI->HBP->SHA->SH->HASH|migrated_from=NONE|json=0\n";
+        string hbi_hdr = "HBIHDR|for=" + hbp_filename + "|schema=asolaria.host8.index.v2|seal=HBI-HBP-SHA-SH-HASH|traversal=HBI->HBP->SHA->SH->HASH|commit=" + string(GIT_COMMIT_HASH) + "|kernel_id=" + string(KERNEL_ID) + "|lattice=" + string(LATTICE_CONFIG) + "|exe_sha256=" + get_executable_sha256() + "|migrated_from=NONE|json=0\n";
         hbi_out.write(hbi_hdr.data(), hbi_hdr.size());
         hbi_out.flush();
     }
@@ -1595,13 +2141,6 @@ static bool run_host8_mode_a(const string& custom_dir = "",
         }
     }
 
-    // Pre-allocated buffers (< 2 MB total)
-    vector<u8> state(V * K, 0);
-    vector<u8> sim_state(V * K, 0);
-    vector<u8> next_state(V * K, 0);
-    vector<u8> rev_state(V * K, 0);
-    vector<u64> stubs(V, 0);
-
     u64 windows_executed = 0;
     u64 total_rooms_evolved = 0;
     u64 total_trits_evolved = 0;
@@ -1612,6 +2151,8 @@ static bool run_host8_mode_a(const string& custom_dir = "",
     int hashes_recorded = 0;
     int hash_mismatches = 0;
     int read_failures = 0;
+    int last_sec = start_sector;
+    int last_win = 0;
     bool all_ok = true;
 
     for (int sec = start_sector; sec <= end_sector; ++sec) {
@@ -1632,13 +2173,18 @@ static bool run_host8_mode_a(const string& custom_dir = "",
 
         sector_file.seekg(0, std::ios::end);
         u64 file_size = sector_file.tellg();
+        sector_file.close();
+
+        vector<WindowJob> batch_jobs;
 
         for (int win = 0; win < WINDOWS_PER_SECTOR; ++win) {
             if (resume && completed_set.count({sec, win})) {
                 continue;
             }
 
-            if (max_windows_to_run > 0 && (windows_executed + resumed_windows) >= max_windows_to_run) break;
+            if (max_windows_to_run > 0 && (windows_executed + resumed_windows + batch_jobs.size()) >= max_windows_to_run) {
+                break;
+            }
 
             u64 start_room_offset = 0;
             u64 end_room_offset = 0;
@@ -1669,180 +2215,153 @@ static bool run_host8_mode_a(const string& custom_dir = "",
                 continue;
             }
 
-            sector_file.seekg(start_room_offset * 8);
-            sector_file.read(reinterpret_cast<char*>(stubs.data()), WINDOW_BYTES);
-            if (!sector_file) {
-                read_failures++;
-                std::cerr << "[ERROR] Read failure: Sector " << sec << " window " << win << "\n";
-                all_ok = false;
-                if (strict_mode) break;
-                continue;
-            }
+            WindowJob job;
+            job.sec = sec;
+            job.win = win;
+            job.start_room_offset = start_room_offset;
+            job.end_room_offset = end_room_offset;
+            job.rooms = V;
+            job.overlap_rooms = overlap_rooms;
+            job.unique_rooms = unique_rooms;
+            job.cumulative_sector_rooms = cumulative_sector_rooms;
+            batch_jobs.push_back(job);
 
-            total_bytes_read += WINDOW_BYTES;
-            string win_sha256 = asolaria::SHA256::hash_bytes(reinterpret_cast<const uint8_t*>(stubs.data()), WINDOW_BYTES);
-            string sh = win_sha256.substr(0, 16);
-
-            string auth_status;
-            bool is_pinned = (start_room_offset == 0 && auth_hashes.count(sec));
-            if (is_pinned) {
-                if (auth_hashes.at(sec) == win_sha256) {
-                    auth_status = "PINNED_MATCH";
-                    pinned_matches++;
+            bool reached_limit = (max_windows_to_run > 0 && (windows_executed + resumed_windows + batch_jobs.size()) >= max_windows_to_run);
+            bool reached_sector_end = (win == WINDOWS_PER_SECTOR - 1);
+            if (batch_jobs.size() >= static_cast<size_t>(threads_to_use) || reached_limit || reached_sector_end) {
+                vector<WindowSimResult> results;
+                if (threads_to_use <= 1 || batch_jobs.size() <= 1) {
+                    for (const auto& j : batch_jobs) {
+                        results.push_back(simulate_single_mode_a_window(dir, j, col, v, auth_hashes));
+                    }
                 } else {
-                    auth_status = "HASH_MISMATCH";
-                    hash_mismatches++;
-                    std::cerr << "[ERROR] Pinned hash mismatch on sector " << sec << ": expected " << auth_hashes.at(sec) << ", got " << win_sha256 << "\n";
-                    all_ok = false;
+                    vector<std::future<WindowSimResult>> futures;
+                    for (const auto& j : batch_jobs) {
+                        futures.push_back(std::async(std::launch::async, simulate_single_mode_a_window, dir, j, std::cref(col), std::cref(v), std::cref(auth_hashes)));
+                    }
+                    for (auto& fut : futures) {
+                        results.push_back(fut.get());
+                    }
                 }
-            } else {
-                auth_status = "HASH_RECORDED";
-                hashes_recorded++;
-            }
+                batch_jobs.clear();
 
-            // Decode 8-byte process rooms to 27 velocity trits
-            for (int cell = 0; cell < V; ++cell) {
-                u64 val = stubs[cell];
-                int base = cell * K;
-                for (int k = 0; k < K; ++k) {
-                    state[base + k] = static_cast<u8>(val % 3);
-                    val /= 3;
+                // Sequential commit of batch results
+                for (const auto& res : results) {
+                    if (!res.read_ok) {
+                        read_failures++;
+                        all_ok = false;
+                        if (strict_mode) break;
+                        continue;
+                    }
+
+                    total_bytes_read += WINDOW_BYTES;
+                    if (res.auth_status == "PINNED_MATCH") pinned_matches++;
+                    else if (res.auth_status == "HASH_MISMATCH") { hash_mismatches++; all_ok = false; }
+                    else hashes_recorded++;
+
+                    if (!res.int_inv_ok) total_invariant_failures++;
+                    total_loschmidt_mismatches += res.mismatches;
+                    all_ok &= res.win_ok;
+                    string physics_status = res.win_ok ? "VERIFIED" : "FAIL";
+
+                    string cur_hash;
+                    string hbp_line;
+                    string hbi_line;
+
+                    if (is_v1_checkpoint) {
+                        cur_hash = compute_window_hash_v1(prev_hash, res.job.sec, res.job.win, res.job.start_room_offset,
+                                                          res.win_sha256, res.sh, physics_status);
+                        hbp_line = res.receipt_payload + "|prev_hash=" + prev_hash + "|hash=" + cur_hash + "|json=0\n";
+                    } else {
+                        cur_hash = compute_window_hash_v2(prev_hash, res.job.sec, res.job.win, res.job.start_room_offset,
+                                                          res.win_sha256, res.sh, physics_status, res.receipt_sha);
+                        hbp_line = res.receipt_payload + "|receipt_sha=" + res.receipt_sha +
+                                  "|prev_hash=" + prev_hash + "|hash=" + cur_hash + "|json=0\n";
+                    }
+
+                    u64 row_offset = hbp_current_offset;
+                    u64 row_len = hbp_line.size();
+                    string hbp_line_sha = asolaria::SHA256::hash_bytes(reinterpret_cast<const uint8_t*>(hbp_line.data()), row_len);
+
+                    hbp_out.write(hbp_line.data(), row_len);
+                    hbp_out.flush();
+                    hbp_current_offset += row_len;
+
+                    if (is_v1_checkpoint) {
+                        hbi_line = "HBI|sec=" + std::to_string(res.job.sec) +
+                                  "|win=" + std::to_string(res.job.win) +
+                                  "|room_start=" + std::to_string(res.job.start_room_offset) +
+                                  "|offset=" + std::to_string(row_offset) +
+                                  "|len=" + std::to_string(row_len) +
+                                  "|source_sha=" + res.win_sha256 +
+                                  "|sh=" + res.sh +
+                                  "|hbp_sha256=" + hbp_line_sha +
+                                  "|hash=" + cur_hash +
+                                  "|status=" + physics_status +
+                                  "|json=0\n";
+                    } else {
+                        hbi_line = "HBI|sec=" + std::to_string(res.job.sec) +
+                                  "|win=" + std::to_string(res.job.win) +
+                                  "|room_start=" + std::to_string(res.job.start_room_offset) +
+                                  "|offset=" + std::to_string(row_offset) +
+                                  "|len=" + std::to_string(row_len) +
+                                  "|source_sha=" + res.win_sha256 +
+                                  "|sh=" + res.sh +
+                                  "|hbp_sha256=" + hbp_line_sha +
+                                  "|receipt_sha=" + res.receipt_sha +
+                                  "|hash=" + cur_hash +
+                                  "|status=" + physics_status +
+                                  "|json=0\n";
+                    }
+
+                    hbi_out.write(hbi_line.data(), hbi_line.size());
+                    hbi_out.flush();
+
+                    prev_hash = cur_hash;
+
+                    if (ledger_out.is_open()) {
+                        ledger_out << res.job.sec << "," << res.job.win << "," << res.job.start_room_offset << "," << res.job.end_room_offset << ","
+                                   << V << "," << res.job.overlap_rooms << "," << res.job.unique_rooms << "," << res.job.cumulative_sector_rooms << ","
+                                   << res.win_sha256 << "," << res.auth_status << "," << res.dE << "," << res.mismatches << ","
+                                   << physics_status << "," << TICKS_FORWARD << "," << TICKS_LOSCHMIDT << "\n";
+                        ledger_out.flush();
+                    }
+
+                    windows_executed++;
+                    total_rooms_evolved += V;
+                    total_trits_evolved += static_cast<u64>(V) * K;
+                    last_sec = res.job.sec;
+                    last_win = res.job.win;
+
+                    // Periodic anchor checkpointing
+                    if (!resolved_anchor.empty() && (windows_executed % 1000 == 0)) {
+                        write_trust_anchor(resolved_anchor, hbp_path, hbi_path, last_sec, last_win,
+                                           windows_executed + resumed_windows, total_rooms_evolved + resumed_rooms,
+                                           prev_hash, get_executable_sha256(), GIT_COMMIT_HASH);
+                    }
+
+                    // Progress reporting
+                    if (windows_executed % 100 == 0 || res.job.win == 0 || res.job.win == WINDOWS_PER_SECTOR - 1) {
+                        auto t_now = std::chrono::steady_clock::now();
+                        double el = std::chrono::duration<double>(t_now - t_start).count();
+                        double w_per_sec = (el > 0) ? (windows_executed / el) : 0;
+                        double rooms_per_sec = w_per_sec * V;
+                        double mb_per_sec = (el > 0) ? ((static_cast<double>(total_bytes_read) / (1024.0 * 1024.0)) / el) : 0;
+                        std::cout << "[Mode A HBP/HBI] Sec " << std::setw(3) << std::setfill('0') << res.job.sec
+                                  << " Win " << std::setw(4) << res.job.win
+                                  << " (" << std::fixed << std::setprecision(1) << (static_cast<double>(res.job.cumulative_sector_rooms) * 100.0 / SECTOR_ROOMS) << "% sec) | "
+                                  << windows_executed << " run" << (resumed_windows > 0 ? (" (" + std::to_string(resumed_windows) + " resumed)") : "")
+                                  << " | " << std::fixed << std::setprecision(2) << el << "s ("
+                                  << std::setprecision(1) << w_per_sec << " win/s, "
+                                  << std::setprecision(2) << (rooms_per_sec / 1e6) << " Mrooms/s, "
+                                  << std::setprecision(1) << mb_per_sec << " MB/s) | "
+                                  << (res.win_ok ? "PASS" : "FAIL") << "\n";
+                    }
                 }
             }
 
-            // Invariant verification & forward simulation (48 ticks)
-            IntegerInvariants init_inv = compute_integer_invariants(state, v);
-            bool int_inv_ok = true;
-
-            sim_state = state;
-            for (int t = 0; t < TICKS_FORWARD; ++t) {
-                step_universe(sim_state, next_state, col, v, L, t);
-                IntegerInvariants cur_inv = compute_integer_invariants(sim_state, v);
-                if (cur_inv.mass != init_inv.mass || cur_inv.px != init_inv.px ||
-                    cur_inv.py != init_inv.py || cur_inv.pz != init_inv.pz ||
-                    cur_inv.energy_2x != init_inv.energy_2x) {
-                    int_inv_ok = false;
-                }
-            }
-
-            IntegerInvariants final_inv = compute_integer_invariants(sim_state, v);
-            double dE = std::abs(static_cast<double>(final_inv.energy_2x - init_inv.energy_2x) / 2.0);
-
-            // Reversibility check (16 forward + 16 reverse Loschmidt ticks)
-            rev_state = state;
-            for (int t = 0; t < TICKS_LOSCHMIDT; ++t) {
-                step_universe(rev_state, next_state, col, v, L, t);
-                IntegerInvariants cur_inv = compute_integer_invariants(rev_state, v);
-                if (cur_inv.mass != init_inv.mass || cur_inv.px != init_inv.px ||
-                    cur_inv.py != init_inv.py || cur_inv.pz != init_inv.pz ||
-                    cur_inv.energy_2x != init_inv.energy_2x) {
-                    int_inv_ok = false;
-                }
-            }
-            for (int t = TICKS_LOSCHMIDT - 1; t >= 0; --t) {
-                step_universe_backward(rev_state, next_state, col, v, L, t);
-                IntegerInvariants cur_inv = compute_integer_invariants(rev_state, v);
-                if (cur_inv.mass != init_inv.mass || cur_inv.px != init_inv.px ||
-                    cur_inv.py != init_inv.py || cur_inv.pz != init_inv.pz ||
-                    cur_inv.energy_2x != init_inv.energy_2x) {
-                    int_inv_ok = false;
-                }
-            }
-
-            u64 mismatches = 0;
-            for (size_t i = 0; i < state.size(); ++i) {
-                if (state[i] != rev_state[i]) mismatches++;
-            }
-
-            if (!int_inv_ok) total_invariant_failures++;
-            total_loschmidt_mismatches += mismatches;
-
-            bool win_ok = (int_inv_ok && (mismatches == 0) && (dE < 1e-12) && (auth_status != "HASH_MISMATCH"));
-            all_ok &= win_ok;
-            string physics_status = win_ok ? "VERIFIED" : "FAIL";
-
-            // Cryptographic HASH chain binding
-            string cur_hash = compute_window_hash(prev_hash, sec, win, start_room_offset, win_sha256, sh, physics_status);
-
-            // Emit canonical HBP receipt row
-            std::ostringstream hbp_row_ss;
-            hbp_row_ss << "HOST8WIN|sec=" << sec
-                       << "|win=" << win
-                       << "|room_start=" << start_room_offset
-                       << "|room_end=" << end_room_offset
-                       << "|rooms=" << V
-                       << "|overlap=" << overlap_rooms
-                       << "|unique=" << unique_rooms
-                       << "|cum_rooms=" << cumulative_sector_rooms
-                       << "|source_sha256=" << win_sha256
-                       << "|sh=" << sh
-                       << "|auth=" << auth_status
-                       << "|dE=" << dE
-                       << "|rev_mismatches=" << mismatches
-                       << "|forward_ticks=" << TICKS_FORWARD
-                       << "|reverse_ticks=" << TICKS_LOSCHMIDT
-                       << "|physics_status=" << physics_status
-                       << "|prev_hash=" << prev_hash
-                       << "|hash=" << cur_hash
-                       << "|json=0\n";
-            string hbp_line = hbp_row_ss.str();
-            u64 row_offset = hbp_current_offset;
-            u64 row_len = hbp_line.size();
-            string hbp_line_sha = asolaria::SHA256::hash_bytes(reinterpret_cast<const uint8_t*>(hbp_line.data()), row_len);
-
-            hbp_out.write(hbp_line.data(), row_len);
-            hbp_out.flush();
-            hbp_current_offset += row_len;
-
-            // Emit fast HBI index row
-            std::ostringstream hbi_row_ss;
-            hbi_row_ss << "HBI|sec=" << sec
-                       << "|win=" << win
-                       << "|room_start=" << start_room_offset
-                       << "|offset=" << row_offset
-                       << "|len=" << row_len
-                       << "|source_sha=" << win_sha256
-                       << "|sh=" << sh
-                       << "|hbp_sha256=" << hbp_line_sha
-                       << "|hash=" << cur_hash
-                       << "|status=" << physics_status
-                       << "|json=0\n";
-            string hbi_line = hbi_row_ss.str();
-            hbi_out.write(hbi_line.data(), hbi_line.size());
-            hbi_out.flush();
-
-            prev_hash = cur_hash;
-
-            // Optional legacy CSV commit
-            if (ledger_out.is_open()) {
-                ledger_out << sec << "," << win << "," << start_room_offset << "," << end_room_offset << ","
-                           << V << "," << overlap_rooms << "," << unique_rooms << "," << cumulative_sector_rooms << ","
-                           << win_sha256 << "," << auth_status << "," << dE << "," << mismatches << ","
-                           << physics_status << "," << TICKS_FORWARD << "," << TICKS_LOSCHMIDT << "\n";
-                ledger_out.flush();
-            }
-
-            windows_executed++;
-            total_rooms_evolved += V;
-            total_trits_evolved += static_cast<u64>(V) * K;
-
-            // Periodic progress reporting
-            if (windows_executed % 50 == 0 || win == 0 || win == WINDOWS_PER_SECTOR - 1) {
-                auto t_now = std::chrono::steady_clock::now();
-                double el = std::chrono::duration<double>(t_now - t_start).count();
-                double w_per_sec = (el > 0) ? (windows_executed / el) : 0;
-                double rooms_per_sec = w_per_sec * V;
-                double mb_per_sec = (el > 0) ? ((static_cast<double>(total_bytes_read) / (1024.0 * 1024.0)) / el) : 0;
-                std::cout << "[Mode A HBP/HBI] Sec " << std::setw(3) << std::setfill('0') << sec
-                          << " Win " << std::setw(4) << win
-                          << " (" << std::fixed << std::setprecision(1) << (static_cast<double>(cumulative_sector_rooms) * 100.0 / SECTOR_ROOMS) << "% sec) | "
-                          << windows_executed << " run" << (resumed_windows > 0 ? (" (" + std::to_string(resumed_windows) + " resumed)") : "")
-                          << " | " << std::fixed << std::setprecision(2) << el << "s ("
-                          << std::setprecision(1) << w_per_sec << " win/s, "
-                          << std::setprecision(2) << (rooms_per_sec / 1e6) << " Mrooms/s, "
-                          << std::setprecision(1) << mb_per_sec << " MB/s) | "
-                          << (win_ok ? "PASS" : "FAIL") << "\n";
-            }
+            if (max_windows_to_run > 0 && (windows_executed + resumed_windows) >= max_windows_to_run) break;
+            if (!all_ok && strict_mode) break;
         }
 
         if (max_windows_to_run > 0 && (windows_executed + resumed_windows) >= max_windows_to_run) break;
@@ -1852,6 +2371,14 @@ static bool run_host8_mode_a(const string& custom_dir = "",
     hbp_out.close();
     hbi_out.close();
     if (ledger_out.is_open()) ledger_out.close();
+
+    // Write final trust anchor
+    if (!resolved_anchor.empty()) {
+        write_trust_anchor(resolved_anchor, hbp_path, hbi_path, last_sec, last_win,
+                           windows_executed + resumed_windows, total_rooms_evolved + resumed_rooms,
+                           prev_hash, get_executable_sha256(), GIT_COMMIT_HASH);
+        std::cout << "  Trust Anchor written to     : " << resolved_anchor << "\n";
+    }
 
     auto t_end = std::chrono::steady_clock::now();
     double elapsed_sec = std::chrono::duration<double>(t_end - t_start).count();
@@ -1888,6 +2415,7 @@ static bool run_host8_mode_a(const string& custom_dir = "",
     std::cout << "  Extrapolated Runtime        : " << std::fixed << std::setprecision(1) << extrapolated_total_seconds << " s (" << std::setprecision(2) << extrapolated_total_hours << " hours / " << std::setprecision(2) << (extrapolated_total_hours / 24.0) << " days)\n";
     std::cout << "  Native HBP Receipts Path    : " << hbp_path << "\n";
     std::cout << "  Native HBI Index Path       : " << hbi_path << "\n";
+    std::cout << "  Trust Anchor Path           : " << resolved_anchor << "\n";
     std::cout << "  Overall Execution Status    : " << (all_ok ? "ALL EXECUTED WINDOWS VERIFIED" : "VERIFICATION FAILURE") << "\n";
     std::cout << "=======================================================================\n";
 
@@ -1904,6 +2432,7 @@ static bool run_host8_mode_a(const string& custom_dir = "",
            << "  \"execution_mode\": \"MODE_A_INDEPENDENT_BOUNDED_LATTICE\",\n"
            << "  \"seal\": \"HBI-HBP-SHA-SH-HASH\",\n"
            << "  \"traversal\": \"HBI->HBP->SHA->SH->HASH\",\n"
+           << "  \"schema\": \"" << (is_v1_checkpoint ? "asolaria.host8.mode_a.v1" : "asolaria.host8.mode_a.v2") << "\",\n"
            << "  \"start_sector\": " << start_sector << ",\n"
            << "  \"end_sector\": " << end_sector << ",\n"
            << "  \"windows_executed\": " << windows_executed << ",\n"
@@ -2221,7 +2750,12 @@ int main(int argc, char** argv) {
     string checkpoint_ledger_path = "host8_mode_a_checkpoint.ledger";
     string custom_hbp_path = "host8_mode_a.hbp";
     string custom_hbi_path = "host8_mode_a.hbi";
+    string custom_anchor_path = "";
     bool verify_hbp_only = false;
+    bool verify_anchor_only = false;
+    bool mode_a_reauth_source = false;
+    bool mode_a_repair_interrupted = false;
+    int mode_a_threads = 0;
 
     bool ok = true;
 
@@ -2239,7 +2773,12 @@ int main(int argc, char** argv) {
         if (arg == "--resume") { mode_a_resume = true; }
         if (arg == "--hbp" && i + 1 < argc) { custom_hbp_path = argv[++i]; }
         if (arg == "--hbi" && i + 1 < argc) { custom_hbi_path = argv[++i]; }
+        if (arg == "--anchor" && i + 1 < argc) { custom_anchor_path = argv[++i]; }
         if (arg == "--verify-hbp") { verify_hbp_only = true; }
+        if (arg == "--verify-anchor") { verify_anchor_only = true; }
+        if (arg == "--reauth-source") { mode_a_reauth_source = true; }
+        if (arg == "--repair-interrupted") { mode_a_repair_interrupted = true; }
+        if (arg == "--threads" && i + 1 < argc) { mode_a_threads = std::stoi(argv[++i]); }
         if (arg == "--checkpoint-ledger" && i + 1 < argc) { checkpoint_ledger_path = argv[++i]; }
         if (arg == "--host8-offset" && i + 1 < argc) { host8_offset = std::stoull(argv[++i]); }
         if (arg == "--host8-sectors" && i + 1 < argc) {
@@ -2258,20 +2797,48 @@ int main(int argc, char** argv) {
         if (arg == "--standalone") standalone = true;
     }
 
-    if (verify_hbp_only) {
+    if (verify_anchor_only) {
+        if (custom_anchor_path.empty()) {
+            size_t dot = custom_hbp_path.find_last_of('.');
+            custom_anchor_path = (dot != string::npos ? custom_hbp_path.substr(0, dot) : custom_hbp_path) + ".anchor";
+        }
+        string anchor_err;
+        bool a_ok = verify_trust_anchor(custom_anchor_path, custom_hbp_path, custom_hbi_path, anchor_err);
+        if (a_ok) {
+            std::cout << "\n=======================================================================\n";
+            std::cout << " ASOLARIA HOST8 TRUST ANCHOR VERIFICATION: PASS\n";
+            std::cout << "  Anchor File: " << custom_anchor_path << "\n";
+            std::cout << "  Root HBP   : " << custom_hbp_path << "\n";
+            std::cout << "  Root HBI   : " << custom_hbi_path << "\n";
+            std::cout << "  Signature  : 100% CRYPTOGRAPHICALLY VALID\n";
+            std::cout << "=======================================================================\n";
+            return 0;
+        } else {
+            std::cerr << "\n[FAIL] Trust anchor verification failure: " << anchor_err << "\n";
+            return 1;
+        }
+    } else if (verify_hbp_only) {
         u64 valid_cnt = 0;
         string last_hash, err;
         std::set<std::pair<int, int>> completed;
         u64 hbp_size = 0;
-        bool v_ok = verify_host8_hbp_hbi(custom_hbp_path, custom_hbi_path, valid_cnt, last_hash, completed, hbp_size, err);
+        string reauth_dir = mode_a_reauth_source ? (custom_host8_dir.empty() ? (std::ifstream("D:/ASOLARIA-HOST8-ROOMS-300G/sector-000.rooms").is_open() ? "D:/ASOLARIA-HOST8-ROOMS-300G" : "data/host8_samples") : custom_host8_dir) : "";
+        bool v_ok = verify_host8_hbp_hbi(custom_hbp_path, custom_hbi_path, valid_cnt, last_hash, completed, hbp_size, err,
+                                          reauth_dir, custom_anchor_path, mode_a_repair_interrupted);
         if (v_ok) {
             std::cout << "\n=======================================================================\n";
             std::cout << " ASOLARIA HOST8 NATIVE HBP/HBI CHECKPOINT VERIFICATION: PASS\n";
             std::cout << "  HBP Receipt Path: " << custom_hbp_path << " (" << hbp_size << " bytes)\n";
             std::cout << "  HBI Index Path  : " << custom_hbi_path << "\n";
+            if (!custom_anchor_path.empty()) {
+                std::cout << "  Anchor File Path: " << custom_anchor_path << "\n";
+            }
             std::cout << "  Windows Verified: " << valid_cnt << "\n";
             std::cout << "  Seal System     : HBI-HBP-SHA-SH-HASH (traversal: HBI->HBP->SHA->SH->HASH)\n";
             std::cout << "  Final Chain HASH: " << last_hash << "\n";
+            if (mode_a_reauth_source) {
+                std::cout << "  Physical Source : RE-AUTHENTICATED from " << reauth_dir << "\n";
+            }
             std::cout << "  Integrity Status: 100% UNBROKEN CRYPTOGRAPHIC INTEGRITY\n";
             std::cout << "=======================================================================\n";
             return 0;
@@ -2283,7 +2850,9 @@ int main(int argc, char** argv) {
         ok &= run_host8_mode_a(custom_host8_dir, mode_a_start_sector, mode_a_end_sector,
                                mode_a_max_windows, mode_a_resume, custom_hbp_path,
                                custom_hbi_path, checkpoint_ledger_path, manifest_path,
-                               host8_strict || true);
+                               host8_strict || true,
+                               custom_anchor_path, mode_a_reauth_source,
+                               mode_a_repair_interrupted, mode_a_threads);
     } else if (run_host8_boundary) {
         ok &= run_host8_boundary_mode_a(custom_host8_dir, custom_output);
     } else if (standalone) {

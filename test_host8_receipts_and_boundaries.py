@@ -482,21 +482,38 @@ class TestNativeHbpFabricAndIntegrity:
             bad_hbp = os.path.join(tmpdir, "broken_chain.hbp")
             bad_hbi = os.path.join(tmpdir, "broken_chain.hbi")
 
-            with open("host8_mode_a_pilot100.hbp", "rb") as f:
-                with open(bad_hbp, "wb") as out_f:
-                    out_f.write(f.read())
-
-            with open("host8_mode_a_pilot100.hbi", "r") as f:
+            with open("host8_mode_a_pilot100.hbp", "r", encoding="utf-8", newline="\n") as f:
+                hbp_lines = f.readlines()
+            with open("host8_mode_a_pilot100.hbi", "r", encoding="utf-8", newline="\n") as f:
                 hbi_lines = f.readlines()
-            # In line 2, tamper with hash field while keeping hbp_sha256 intact
-            parts = hbi_lines[2].split("|")
-            for i, p in enumerate(parts):
-                if p.startswith("hash="):
-                    parts[i] = "hash=deadbeef00000000000000000000000000000000000000000000000000000000"
-            hbi_lines[2] = "|".join(parts)
 
-            with open(bad_hbi, "w") as f:
-                f.writelines(hbi_lines)
+            fake_hash = "deadbeef00000000000000000000000000000000000000000000000000000000"
+
+            # Update HBP line 2
+            hbp_p = hbp_lines[2].strip().split("|")
+            for i, p in enumerate(hbp_p):
+                if p.startswith("hash="):
+                    hbp_p[i] = f"hash={fake_hash}"
+            hbp_lines[2] = "|".join(hbp_p) + "\n"
+
+            new_hbp_sha = hashlib.sha256(hbp_lines[2].encode("utf-8")).hexdigest()
+            new_len = len(hbp_lines[2].encode("utf-8"))
+
+            # Update HBI line 2
+            hbi_p = hbi_lines[2].strip().split("|")
+            for i, p in enumerate(hbi_p):
+                if p.startswith("hash="):
+                    hbi_p[i] = f"hash={fake_hash}"
+                elif p.startswith("hbp_sha256="):
+                    hbi_p[i] = f"hbp_sha256={new_hbp_sha}"
+                elif p.startswith("len="):
+                    hbi_p[i] = f"len={new_len}"
+            hbi_lines[2] = "|".join(hbi_p) + "\n"
+
+            with open(bad_hbp, "w", encoding="utf-8", newline="\n") as out_f:
+                out_f.writelines(hbp_lines)
+            with open(bad_hbi, "w", encoding="utf-8", newline="\n") as out_f:
+                out_f.writelines(hbi_lines)
 
             res = subprocess.run([
                 exe, "--verify-hbp",
@@ -515,17 +532,17 @@ class TestNativeHbpFabricAndIntegrity:
             bad_hbp = os.path.join(tmpdir, "bad_sh.hbp")
             bad_hbi = os.path.join(tmpdir, "bad_sh.hbi")
 
-            with open("host8_mode_a_pilot100.hbp", "r") as f:
+            with open("host8_mode_a_pilot100.hbp", "r", encoding="utf-8", newline="\n") as f:
                 hbp_lines = f.readlines()
             # Corrupt SH handle in line 2
             hbp_lines[2] = hbp_lines[2].replace("|sh=", "|sh=0123456789abcdef_bad|old_sh=")
 
-            with open("host8_mode_a_pilot100.hbi", "r") as f:
+            with open("host8_mode_a_pilot100.hbi", "r", encoding="utf-8", newline="\n") as f:
                 hbi_lines = f.readlines()
 
-            with open(bad_hbp, "w") as f:
+            with open(bad_hbp, "w", encoding="utf-8", newline="\n") as f:
                 f.writelines(hbp_lines)
-            with open(bad_hbi, "w") as f:
+            with open(bad_hbi, "w", encoding="utf-8", newline="\n") as f:
                 f.writelines(hbi_lines)
 
             res = subprocess.run([
@@ -560,3 +577,221 @@ class TestNativeHbpFabricAndIntegrity:
                 "--hbi", bad_hbi
             ], capture_output=True, text=True)
             assert res.returncode != 0, "Truncated HBP file must fail verification!"
+
+
+class TestStageGTrustChainHardening:
+    """Stage G: Rigorous bidirectional cross-validation, physical disk reauth,
+    exact integer invariant enforcement, trust anchor cryptography, and crash repair.
+    """
+
+    def test_negative_bidirectional_mismatch(self):
+        exe = "./asolaria_equilibrium_suite.exe" if os.name == "nt" else "./asolaria_equilibrium_suite"
+        if not os.path.exists(exe) or not os.path.exists("host8_mode_a_pilot100.hbp"):
+            pytest.skip("Prerequisites not present.")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad_hbp = os.path.join(tmpdir, "bidirectional.hbp")
+            bad_hbi = os.path.join(tmpdir, "bidirectional.hbi")
+
+            with open("host8_mode_a_pilot100.hbp", "rb") as f:
+                with open(bad_hbp, "wb") as out_f:
+                    out_f.write(f.read())
+
+            with open("host8_mode_a_pilot100.hbi", "r", encoding="utf-8", newline="\n") as f:
+                hbi_lines = f.readlines()
+
+            # Alter room_start in HBI line 2 without modifying HBP
+            hbi_lines[2] = hbi_lines[2].replace("|room_start=13824|", "|room_start=99999|")
+
+            with open(bad_hbi, "w", encoding="utf-8", newline="\n") as f:
+                f.writelines(hbi_lines)
+
+            res = subprocess.run([
+                exe, "--verify-hbp",
+                "--hbp", bad_hbp,
+                "--hbi", bad_hbi
+            ], capture_output=True, text=True)
+            assert res.returncode != 0, "Bidirectional divergence must fail!"
+            assert "HBP/HBI bidirectional mismatch" in (res.stdout + res.stderr)
+
+    def test_negative_energy_conservation_violation(self):
+        exe = "./asolaria_equilibrium_suite.exe" if os.name == "nt" else "./asolaria_equilibrium_suite"
+        if not os.path.exists(exe) or not os.path.exists("host8_mode_a_pilot100.hbp"):
+            pytest.skip("Prerequisites not present.")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad_hbp = os.path.join(tmpdir, "de_bad.hbp")
+            bad_hbi = os.path.join(tmpdir, "de_bad.hbi")
+
+            with open("host8_mode_a_pilot100.hbp", "r", encoding="utf-8", newline="\n") as f:
+                hbp_lines = f.readlines()
+            hbp_lines[2] = hbp_lines[2].replace("|dE=0|", "|dE=1|")
+
+            # Update HBI line 2 length and sha to match modified line
+            new_sha = hashlib.sha256(hbp_lines[2].encode("utf-8")).hexdigest()
+            new_len = len(hbp_lines[2].encode("utf-8"))
+
+            with open("host8_mode_a_pilot100.hbi", "r", encoding="utf-8", newline="\n") as f:
+                hbi_lines = f.readlines()
+            hbi_p = hbi_lines[2].strip().split("|")
+            for i, p in enumerate(hbi_p):
+                if p.startswith("hbp_sha256="):
+                    hbi_p[i] = f"hbp_sha256={new_sha}"
+                elif p.startswith("len="):
+                    hbi_p[i] = f"len={new_len}"
+            hbi_lines[2] = "|".join(hbi_p) + "\n"
+
+            with open(bad_hbp, "w", encoding="utf-8", newline="\n") as f:
+                f.writelines(hbp_lines)
+            with open(bad_hbi, "w", encoding="utf-8", newline="\n") as f:
+                f.writelines(hbi_lines)
+
+            res = subprocess.run([
+                exe, "--verify-hbp",
+                "--hbp", bad_hbp,
+                "--hbi", bad_hbi
+            ], capture_output=True, text=True)
+            assert res.returncode != 0, "Non-zero dE must fail verification!"
+            assert "dE conservation failure" in (res.stdout + res.stderr)
+
+    def test_negative_loschmidt_reversal_violation(self):
+        exe = "./asolaria_equilibrium_suite.exe" if os.name == "nt" else "./asolaria_equilibrium_suite"
+        if not os.path.exists(exe) or not os.path.exists("host8_mode_a_pilot100.hbp"):
+            pytest.skip("Prerequisites not present.")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad_hbp = os.path.join(tmpdir, "rev_bad.hbp")
+            bad_hbi = os.path.join(tmpdir, "rev_bad.hbi")
+
+            with open("host8_mode_a_pilot100.hbp", "r", encoding="utf-8", newline="\n") as f:
+                hbp_lines = f.readlines()
+            hbp_lines[2] = hbp_lines[2].replace("|rev_mismatches=0|", "|rev_mismatches=4|")
+
+            new_sha = hashlib.sha256(hbp_lines[2].encode("utf-8")).hexdigest()
+            new_len = len(hbp_lines[2].encode("utf-8"))
+
+            with open("host8_mode_a_pilot100.hbi", "r", encoding="utf-8", newline="\n") as f:
+                hbi_lines = f.readlines()
+            hbi_p = hbi_lines[2].strip().split("|")
+            for i, p in enumerate(hbi_p):
+                if p.startswith("hbp_sha256="):
+                    hbi_p[i] = f"hbp_sha256={new_sha}"
+                elif p.startswith("len="):
+                    hbi_p[i] = f"len={new_len}"
+            hbi_lines[2] = "|".join(hbi_p) + "\n"
+
+            with open(bad_hbp, "w", encoding="utf-8", newline="\n") as f:
+                f.writelines(hbp_lines)
+            with open(bad_hbi, "w", encoding="utf-8", newline="\n") as f:
+                f.writelines(hbi_lines)
+
+            res = subprocess.run([
+                exe, "--verify-hbp",
+                "--hbp", bad_hbp,
+                "--hbi", bad_hbi
+            ], capture_output=True, text=True)
+            assert res.returncode != 0, "Non-zero rev_mismatches must fail verification!"
+            assert "HBP Loschmidt mismatch" in (res.stdout + res.stderr)
+
+    def test_negative_canonical_geometry_violation(self):
+        exe = "./asolaria_equilibrium_suite.exe" if os.name == "nt" else "./asolaria_equilibrium_suite"
+        if not os.path.exists(exe) or not os.path.exists("host8_mode_a_pilot100.hbp"):
+            pytest.skip("Prerequisites not present.")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad_hbp = os.path.join(tmpdir, "geom_bad.hbp")
+            bad_hbi = os.path.join(tmpdir, "geom_bad.hbi")
+
+            with open("host8_mode_a_pilot100.hbp", "r", encoding="utf-8", newline="\n") as f:
+                hbp_lines = f.readlines()
+            hbp_lines[2] = hbp_lines[2].replace("|rooms=13824|", "|rooms=13825|")
+
+            new_sha = hashlib.sha256(hbp_lines[2].encode("utf-8")).hexdigest()
+            new_len = len(hbp_lines[2].encode("utf-8"))
+
+            with open("host8_mode_a_pilot100.hbi", "r", encoding="utf-8", newline="\n") as f:
+                hbi_lines = f.readlines()
+            hbi_p = hbi_lines[2].strip().split("|")
+            for i, p in enumerate(hbi_p):
+                if p.startswith("hbp_sha256="):
+                    hbi_p[i] = f"hbp_sha256={new_sha}"
+                elif p.startswith("len="):
+                    hbi_p[i] = f"len={new_len}"
+            hbi_lines[2] = "|".join(hbi_p) + "\n"
+
+            with open(bad_hbp, "w", encoding="utf-8", newline="\n") as f:
+                f.writelines(hbp_lines)
+            with open(bad_hbi, "w", encoding="utf-8", newline="\n") as f:
+                f.writelines(hbi_lines)
+
+            res = subprocess.run([
+                exe, "--verify-hbp",
+                "--hbp", bad_hbp,
+                "--hbi", bad_hbi
+            ], capture_output=True, text=True)
+            assert res.returncode != 0, "Non-canonical room count must fail verification!"
+            assert "invalid rooms count" in (res.stdout + res.stderr)
+
+    def test_trust_anchor_and_crash_repair(self):
+        exe = "./asolaria_equilibrium_suite.exe" if os.name == "nt" else "./asolaria_equilibrium_suite"
+        if not os.path.exists(exe):
+            pytest.skip("Executable not present.")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create synthetic 2-window fixture for sector 1
+            fix_sec = os.path.join(tmpdir, "sector-001.rooms")
+            with open(fix_sec, "wb") as f:
+                f.write(b"\x00" * (13824 * 8 * 3))
+
+            hbp = os.path.join(tmpdir, "repair_test.hbp")
+            hbi = os.path.join(tmpdir, "repair_test.hbi")
+            anchor = os.path.join(tmpdir, "repair_test.anchor")
+
+            # Run 2 windows in sector 1
+            res = subprocess.run([
+                exe, "--host8-mode-a",
+                "--windows", "2",
+                "--start-sector", "1",
+                "--end-sector", "1",
+                "--host8-dir", tmpdir,
+                "--hbp", hbp,
+                "--hbi", hbi,
+                "--anchor", anchor,
+                "--threads", "1"
+            ], capture_output=True, text=True)
+            assert res.returncode == 0, f"Execution failed: {res.stdout}\n{res.stderr}"
+
+            # Verify trust anchor
+            v_anc = subprocess.run([
+                exe, "--verify-anchor",
+                "--anchor", anchor,
+                "--hbp", hbp,
+                "--hbi", hbi
+            ], capture_output=True, text=True)
+            assert v_anc.returncode == 0, f"Trust anchor verification must succeed: {v_anc.stderr}"
+            assert "ASOLARIA HOST8 TRUST ANCHOR VERIFICATION: PASS" in v_anc.stdout
+
+            # Test crash corruption: simulate half-written trailing line
+            with open(hbp, "a", encoding="utf-8", newline="\n") as f:
+                f.write("HOST8WIN|sec=1|win=2|room_start=27648|partially_written_line_without_newline")
+            with open(hbi, "a", encoding="utf-8", newline="\n") as f:
+                f.write("HBI|sec=1|win=2|partial")
+
+            # Verification without --repair-interrupted should fail
+            v_fail = subprocess.run([
+                exe, "--verify-hbp",
+                "--hbp", hbp,
+                "--hbi", hbi
+            ], capture_output=True, text=True)
+            assert v_fail.returncode != 0, "Partial trailing line must fail standard verification!"
+
+            # Verification with --repair-interrupted should truncate and succeed!
+            v_rep = subprocess.run([
+                exe, "--verify-hbp",
+                "--hbp", hbp,
+                "--hbi", hbi,
+                "--repair-interrupted"
+            ], capture_output=True, text=True)
+            assert v_rep.returncode == 0, f"Repair must succeed: {v_rep.stdout}\n{v_rep.stderr}"
+            assert "Recovered from partial commit" in v_rep.stdout
+            assert "100% UNBROKEN CRYPTOGRAPHIC INTEGRITY" in v_rep.stdout

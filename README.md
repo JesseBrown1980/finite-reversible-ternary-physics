@@ -10,9 +10,12 @@
 [![Host8 300GB Substrate](https://img.shields.io/badge/Host8%20300GB%20Substrate-Sectors%20000%20%7C%20187%20%7C%20374%20Verified-brightgreen.svg)]()
 [![Measured Isotropy: QR Fit](https://img.shields.io/badge/Directional%20Isotropy-Measured%20c__s%20%5B0.84%2C%200.95%5D%20(QR%20Fit)-brightgreen.svg)]()
 [![Coherent Vortex: >800x SNR](https://img.shields.io/badge/Coherent%20TGV%20Mode-A__TGV%20%3D%200.198%20vs%200.000%20Noise-brightgreen.svg)]()
+[![Independent C++ Verification](https://img.shields.io/badge/Independent%20C%2B%2B%20Verification-PASS%20(GCC%2014.2%207--Decimals)-success.svg)](INDEPENDENT_REPRODUCTION_VERIFICATION.md)
 
 > [!NOTE]
-> **Peer Review Audit Closure**: See [PEER_REVIEW_RESPONSE_6132353.md](PEER_REVIEW_RESPONSE_6132353.md) for the detailed response resolving the independent audit of commit `6132353` (un-hardcoded acoustic isotropy fits, distinct 288-gate alternative rule, hyperbolic thermal transport, and coherent vortex mode decomposition).
+> **Independent Verification & Peer Review Audit Responses**:
+> - [INDEPENDENT_REPRODUCTION_VERIFICATION.md](INDEPENDENT_REPRODUCTION_VERIFICATION.md): Independent GCC 14.2 C++ execution results confirming 288/288 distinct gates, 46,656 passed invariant checks, 100% Loschmidt recurrence, and 7-decimal place agreement across all published observables.
+> - [PEER_REVIEW_RESPONSE_6132353.md](PEER_REVIEW_RESPONSE_6132353.md): Point-by-point technical resolution of audit queries (QR-fitted acoustic isotropy, distinct 288-gate alternative rule, hyperbolic thermal transport, and coherent vortex mode decomposition).
 
 ---
 
@@ -125,6 +128,7 @@ This script will:
 - [`asolaria_equilibrium_suite.cpp`](asolaria_equilibrium_suite.cpp): Core C++17 engine implementing the 4-arm benchmark, live QR acoustic fits, distinct parity collision rules, and fixed-domain refinement.
 - [`acoustic_damped_fit.h`](acoustic_damped_fit.h): QR variable-projection nonlinear damped harmonic estimator.
 - [`reproduce.py`](reproduce.py): Master test harness with automated assertions on collision distinctness, acoustic fits, and coherent modes.
+- [`INDEPENDENT_REPRODUCTION_VERIFICATION.md`](INDEPENDENT_REPRODUCTION_VERIFICATION.md): Independent GCC 14.2 verification audit documenting 7-decimal place numerical agreement.
 - [`PEER_REVIEW_RESPONSE_6132353.md`](PEER_REVIEW_RESPONSE_6132353.md): Point-by-point technical resolution of the peer review audit.
 - [`ROADMAP.md`](ROADMAP.md): Complete scientific roadmap spanning Phases 1, 2, and 3.
 - [`VERIFICATION_HASHES.md`](VERIFICATION_HASHES.md): Cryptographic SHA-256 checksums of all output datasets.

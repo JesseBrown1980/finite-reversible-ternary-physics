@@ -25,3 +25,7 @@
 | `host8_375_sector_physics_regression.csv` | `1ba45e2d4ea26a8bdf3b2c4a2bd5708551f79e604825c46c765e6a8c2916502e` |
 | `host8_375_sector_physics_provenance_v2.csv` | `51034733e1543ad5e6e67adf573c9a3b1a1cf1226d40352adb4c22c801265b02` |
 | `host8_mode_a_boundary_results.csv` | `e6fef8fa226f90549ec8628a012bbe0c69665a07a572cb049e3f39eb3b15b5f5` |
+| `host8_mode_a_pilot100.ledger` | `5cda9e1071e81deb7160f384003368e6cca32a89059797581830b7ad39c57542` |
+| `host8_mode_a_pilot1000.ledger` | `2966238b8e9585f9d3289c39e610ae573bbad98a76b93e34dfa012477dc49279` |
+| `host8_mode_a_pilot100_manifest.json` | `821dc55aba1a34985eecdd508048eaf020ca9a957524912ab931c3293dd3571b` |
+| `host8_mode_a_pilot1000_manifest.json` | `4de43a158f5b586053408c1f04dc94a6e5cc9c4b50bdf64773e619c8e7021eb9` |

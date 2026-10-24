@@ -207,14 +207,21 @@ class TestNegativeScenariosAndFixtures:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out_csv = os.path.join(tmpdir, "negative_eof.csv")
-            # Offset 99,990,000 + 13,824 rooms = 100,003,824 rooms > 100,000,000 EOF
+            sec0_path = os.path.join(tmpdir, "sector-000.rooms")
+            # Create a fixture sector file of size WINDOW_BYTES (110,592 bytes = 13,824 rooms)
+            with open(sec0_path, "wb") as f:
+                f.write(b"\x00" * WINDOW_BYTES)
+
+            # Offset 99,990,000 rooms is far beyond the 13,824 rooms present in this fixture
             res = subprocess.run([
                 exe, "--host8-sectors", "0",
+                "--host8-dir", tmpdir,
                 "--host8-offset", "99990000",
                 "--output", out_csv,
                 "--host8-strict"
             ], capture_output=True, text=True)
             assert res.returncode != 0, "Reading beyond sector EOF must fail closed!"
+            assert "Unable to open or read" in (res.stdout + res.stderr)
 
 
 class TestModeABoundaryAccounting:
@@ -270,6 +277,7 @@ class TestModeABoundaryAccounting:
         assert len(rows) == 6  # 2 windows x 3 sectors
         for r in rows:
             assert int(r["loschmidt_mismatches"]) == 0
+            assert float(r["dE"]) < 1e-12
             assert r["physics_status"] == "VERIFIED"
             if int(r["window_index"]) == 7233:
                 assert int(r["start_room_offset"]) == 99_986_176
@@ -277,3 +285,64 @@ class TestModeABoundaryAccounting:
                 assert int(r["overlap_rooms"]) == 2_816
                 assert int(r["unique_rooms"]) == 11_008
                 assert int(r["cumulative_sector_rooms"]) == 100_000_000
+            elif int(r["window_index"]) == 7232:
+                assert int(r["start_room_offset"]) == 99_975_168
+                assert int(r["end_room_offset"]) == 99_988_992
+                assert int(r["overlap_rooms"]) == 0
+                assert int(r["unique_rooms"]) == 13_824
+                assert int(r["cumulative_sector_rooms"]) == 99_988_992
+
+
+class TestModeABatchExecution:
+    """Validates Mode A batch execution, ledger schema, and deterministic resumption."""
+
+    def test_mode_a_execution_and_resumption(self):
+        exe = "./asolaria_equilibrium_suite.exe" if os.name == "nt" else "./asolaria_equilibrium_suite"
+        if not os.path.exists(exe):
+            pytest.skip("Physics engine executable not built.")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a mock sector file for non-pinned sector 001 with 3 windows of data (3 * 110,592 bytes)
+            sec1_path = os.path.join(tmpdir, "sector-001.rooms")
+            with open(sec1_path, "wb") as f:
+                f.write(b"\x01\x02\x03\x04\x05\x06\x07\x08" * (WINDOW_ROOMS * 3))
+
+            ledger_file = os.path.join(tmpdir, "test_mode_a.ledger")
+            manifest_file = os.path.join(tmpdir, "test_manifest.json")
+
+            # Run 2 windows on sector 1
+            res1 = subprocess.run([
+                exe, "--host8-mode-a",
+                "--host8-dir", tmpdir,
+                "--start-sector", "1",
+                "--end-sector", "1",
+                "--windows", "2",
+                "--checkpoint-ledger", ledger_file,
+                "--host8-manifest", manifest_file,
+            ], capture_output=True, text=True)
+            assert res1.returncode == 0, f"Mode A run 1 failed: {res1.stderr}"
+
+            # Verify ledger has header + 2 entries
+            with open(ledger_file, "r") as f:
+                lines = [l.strip() for l in f if l.strip()]
+            assert len(lines) == 3, f"Expected header + 2 rows, got {len(lines)}"
+
+            # Resume and advance to target 3 windows
+            res2 = subprocess.run([
+                exe, "--host8-mode-a",
+                "--host8-dir", tmpdir,
+                "--start-sector", "1",
+                "--end-sector", "1",
+                "--windows", "3",
+                "--resume",
+                "--checkpoint-ledger", ledger_file,
+                "--host8-manifest", manifest_file,
+            ], capture_output=True, text=True)
+            assert res2.returncode == 0, f"Mode A run 2 (resume) failed: {res2.stderr}"
+
+            # Verify output shows 2 resumed windows
+            assert "2 resumed" in res2.stdout or "Windows Resumed from Ledger : 2" in res2.stdout
+
+            with open(ledger_file, "r") as f:
+                lines = [l.strip() for l in f if l.strip()]
+            assert len(lines) == 4, f"Expected header + 3 rows, got {len(lines)}"

@@ -34,6 +34,7 @@
 #include <sstream>
 #include <chrono>
 #include <ctime>
+#include <set>
 
 using std::array;
 using std::vector;
@@ -1182,6 +1183,55 @@ static bool run_host8_boundary_mode_a(const string& custom_dir = "", const strin
 
     bool all_ok = true;
 
+    auto simulate_window = [&](const vector<u8>& win_state, u64& out_mismatches, double& out_dE) -> bool {
+        IntegerInvariants init_inv = compute_integer_invariants(win_state, v);
+        bool inv_ok = true;
+
+        // 48 forward ticks
+        vector<u8> sim_st = win_state;
+        vector<u8> nxt_st(V * K, 0);
+        for (int t = 0; t < 48; ++t) {
+            step_universe(sim_st, nxt_st, col, v, L, t);
+            IntegerInvariants cur_inv = compute_integer_invariants(sim_st, v);
+            if (cur_inv.mass != init_inv.mass || cur_inv.px != init_inv.px ||
+                cur_inv.py != init_inv.py || cur_inv.pz != init_inv.pz ||
+                cur_inv.energy_2x != init_inv.energy_2x) {
+                inv_ok = false;
+            }
+        }
+
+        IntegerInvariants final_inv = compute_integer_invariants(sim_st, v);
+        out_dE = std::abs(static_cast<double>(final_inv.energy_2x - init_inv.energy_2x) / 2.0);
+
+        // 16 forward + 16 reverse Loschmidt check
+        vector<u8> rev_st = win_state;
+        for (int t = 0; t < 16; ++t) {
+            step_universe(rev_st, nxt_st, col, v, L, t);
+            IntegerInvariants cur_inv = compute_integer_invariants(rev_st, v);
+            if (cur_inv.mass != init_inv.mass || cur_inv.px != init_inv.px ||
+                cur_inv.py != init_inv.py || cur_inv.pz != init_inv.pz ||
+                cur_inv.energy_2x != init_inv.energy_2x) {
+                inv_ok = false;
+            }
+        }
+        for (int t = 15; t >= 0; --t) {
+            step_universe_backward(rev_st, nxt_st, col, v, L, t);
+            IntegerInvariants cur_inv = compute_integer_invariants(rev_st, v);
+            if (cur_inv.mass != init_inv.mass || cur_inv.px != init_inv.px ||
+                cur_inv.py != init_inv.py || cur_inv.pz != init_inv.pz ||
+                cur_inv.energy_2x != init_inv.energy_2x) {
+                inv_ok = false;
+            }
+        }
+
+        out_mismatches = 0;
+        for (size_t i = 0; i < win_state.size(); ++i) {
+            if (win_state[i] != rev_st[i]) out_mismatches++;
+        }
+
+        return inv_ok && (out_mismatches == 0) && (out_dE < 1e-12);
+    };
+
     for (int sec : test_sectors) {
         std::ostringstream ss;
         ss << dir << "/sector-" << std::setw(3) << std::setfill('0') << sec << ".rooms";
@@ -1219,47 +1269,413 @@ static bool run_host8_boundary_mode_a(const string& custom_dir = "", const strin
             all_ok = false;
         }
 
-        // Run full physics on W7233 (final window covering through room 100,000,000)
-        vector<u8> sim_state = state_w7233;
-        vector<u8> next_state(V * K, 0);
-        IntegerInvariants init_inv = compute_integer_invariants(sim_state, v);
+        // Run full physics on BOTH W7232 and W7233
+        u64 mismatches_w7232 = 0;
+        double dE_w7232 = 0.0;
+        bool ok_w7232 = simulate_window(state_w7232, mismatches_w7232, dE_w7232);
 
-        for (int t = 0; t < 48; ++t) {
-            step_universe(sim_state, next_state, col, v, L, t);
-            IntegerInvariants cur_inv = compute_integer_invariants(sim_state, v);
-            if (cur_inv.mass != init_inv.mass || cur_inv.energy_2x != init_inv.energy_2x) {
-                all_ok = false;
-            }
-        }
+        u64 mismatches_w7233 = 0;
+        double dE_w7233 = 0.0;
+        bool ok_w7233 = simulate_window(state_w7233, mismatches_w7233, dE_w7233);
 
-        // 16 forward + 16 reverse Loschmidt check
-        vector<u8> rev_state = state_w7233;
-        for (int t = 0; t < 16; ++t) step_universe(rev_state, next_state, col, v, L, t);
-        for (int t = 15; t >= 0; --t) step_universe_backward(rev_state, next_state, col, v, L, t);
-
-        u64 loschmidt_mismatches = 0;
-        for (size_t i = 0; i < state_w7233.size(); ++i) {
-            if (state_w7233[i] != rev_state[i]) loschmidt_mismatches++;
-        }
-
-        bool sec_ok = (overlap_mismatches == 0 && loschmidt_mismatches == 0);
+        bool sec_ok = (overlap_mismatches == 0) && ok_w7232 && ok_w7233;
         all_ok &= sec_ok;
 
         out << sec << ",7232,99975168,99988992,13824,0,13824,99988992,"
-            << hash_w7232 << ",HASH_RECORDED,0,0,VERIFIED\n";
+            << hash_w7232 << ",HASH_RECORDED," << dE_w7232 << "," << mismatches_w7232 << ","
+            << (ok_w7232 ? "VERIFIED" : "FAIL") << "\n";
         out << sec << ",7233,99986176,100000000,13824,2816,11008,100000000,"
-            << hash_w7233 << ",HASH_RECORDED,0," << loschmidt_mismatches << ","
-            << (sec_ok ? "VERIFIED" : "FAIL") << "\n";
+            << hash_w7233 << ",HASH_RECORDED," << dE_w7233 << "," << mismatches_w7233 << ","
+            << (ok_w7233 ? "VERIFIED" : "FAIL") << "\n";
 
         std::cout << ">>> [Sector " << std::setw(3) << std::setfill('0') << sec
-                  << "] W7232: " << hash_w7232.substr(0, 16) << "... | W7233: " << hash_w7233.substr(0, 16) << "... "
-                  << "| Overlap 2816 rooms: " << (overlap_mismatches == 0 ? "EXACT BIT-MATCH" : "MISMATCH")
-                  << " | W7233 16t-rev: " << loschmidt_mismatches << " mismatches | "
-                  << (sec_ok ? "[PASS]" : "[FAIL]") << "\n";
+                  << "] W7232: " << hash_w7232.substr(0, 16) << "... (" << (ok_w7232 ? "VERIFIED" : "FAIL") << ")"
+                  << " | W7233: " << hash_w7233.substr(0, 16) << "... (" << (ok_w7233 ? "VERIFIED" : "FAIL") << ")"
+                  << " | Overlap 2816 rooms: " << (overlap_mismatches == 0 ? "EXACT BIT-MATCH" : "MISMATCH")
+                  << " | " << (sec_ok ? "[PASS]" : "[FAIL]") << "\n";
     }
 
     out.close();
     std::cout << " Receipts written to: " << out_path << "\n";
+    return all_ok;
+}
+
+static bool run_host8_mode_a(const string& custom_dir = "",
+                            int start_sector = 0,
+                            int end_sector = 374,
+                            u64 max_windows_to_run = 0,
+                            bool resume = false,
+                            const string& ledger_path = "host8_mode_a_checkpoint.ledger",
+                            const string& manifest_path = "",
+                            bool strict_mode = true) {
+    auto t_start = std::chrono::steady_clock::now();
+    std::clock_t c_start = std::clock();
+
+    string dir;
+    if (!custom_dir.empty()) {
+        dir = custom_dir;
+    } else if (std::ifstream("D:/ASOLARIA-HOST8-ROOMS-300G/sector-000.rooms").is_open()) {
+        dir = "D:/ASOLARIA-HOST8-ROOMS-300G";
+    } else {
+        dir = "data/host8_samples";
+    }
+
+    const int L = 24;
+    const int V = L * L * L; // 13,824
+    const u64 WINDOW_BYTES = static_cast<u64>(V) * 8; // 110,592 bytes
+    const int TICKS_FORWARD = 48;
+    const int TICKS_LOSCHMIDT = 16;
+    const int WINDOWS_PER_SECTOR = 7234;
+    const u64 SECTOR_ROOMS = 100000000ULL;
+    const u64 W7233_START_OFFSET = SECTOR_ROOMS - V; // 99,986,176
+
+    auto v = make_velocities();
+    auto col = make_collisions(v, 0);
+
+    const std::map<int, string> auth_hashes = {
+        {0,   "2dfe7d757ecb012475806b86fcdefc602680d042db836ffbcb2bfe924f2a18ee"},
+        {187, "6752ab9e2603cc5042f7c7a41c3ddc48ae5571fd0aeb945d0a3f63b1a948a652"},
+        {374, "963805be806e8a290aab8dee48b0d214d03015c84e02bf844f0de87e2b37c10a"}
+    };
+
+    std::cout << "\n=======================================================================\n";
+    std::cout << " ASOLARIA 300 GB HOST8 MODE A BATCH PHYSICS EXECUTOR\n";
+    std::cout << " Directory          : " << dir << "\n";
+    std::cout << " Sector Range       : [" << start_sector << ", " << end_sector << "] (" << (end_sector - start_sector + 1) << " sectors)\n";
+    std::cout << " Windows per Sector : " << WINDOWS_PER_SECTOR << " (7,233 non-overlapping + 1 boundary overlap)\n";
+    std::cout << " Max Windows to Run : " << (max_windows_to_run > 0 ? std::to_string(max_windows_to_run) : "ALL") << "\n";
+    std::cout << " Checkpoint Ledger  : " << ledger_path << " (Resumable: " << (resume ? "YES" : "NO") << ")\n";
+    std::cout << " Lattice Dimensions : " << L << "x" << L << "x" << L << " = " << V << " rooms (" << (V * K) << " trits per window)\n";
+    std::cout << " Physics Kernel     : D3Q27 integer collision & streaming (0 float ops)\n";
+    std::cout << " Conservation & Rev : 48 forward ticks + 16 forward / 16 reverse Loschmidt ticks\n";
+    std::cout << " Memory Model       : Bounded vector reuse (< 2 MB static RAM)\n";
+    std::cout << " Mode Demarcation   : MODE A (Independent bounded windows with local periodic BC)\n";
+    std::cout << "=======================================================================\n";
+
+    // Read existing ledger if resuming
+    std::set<std::pair<int, int>> completed_set;
+    u64 resumed_windows = 0;
+    u64 resumed_rooms = 0;
+
+    bool ledger_file_exists = false;
+    {
+        std::ifstream test_f(ledger_path);
+        if (test_f.is_open()) ledger_file_exists = true;
+    }
+
+    if (resume && ledger_file_exists) {
+        std::ifstream ledger_in(ledger_path);
+        string line;
+        bool header = true;
+        while (std::getline(ledger_in, line)) {
+            if (line.empty()) continue;
+            if (header) { header = false; continue; }
+            std::stringstream ss(line);
+            string token;
+            vector<string> cols;
+            while (std::getline(ss, token, ',')) cols.push_back(token);
+            if (cols.size() >= 13) {
+                try {
+                    int sec = std::stoi(cols[0]);
+                    int win = std::stoi(cols[1]);
+                    string status = cols[12];
+                    if (status == "VERIFIED") {
+                        completed_set.insert({sec, win});
+                    }
+                } catch (...) {}
+            }
+        }
+        std::cout << "[CHECKPOINT] Loaded " << completed_set.size() << " validated completed windows from ledger.\n";
+    }
+
+    std::ofstream ledger_out;
+    if (resume && ledger_file_exists) {
+        ledger_out.open(ledger_path, std::ios::app);
+    } else {
+        ledger_out.open(ledger_path, std::ios::trunc);
+        ledger_out << "sector,window_index,start_room_offset,end_room_offset,window_rooms,overlap_rooms,unique_rooms,cumulative_sector_rooms,sha256_hash,auth_status,dE,loschmidt_mismatches,physics_status,ticks_forward,ticks_reverse\n";
+        ledger_out.flush();
+    }
+
+    // Pre-allocated buffers (< 2 MB total)
+    vector<u8> state(V * K, 0);
+    vector<u8> sim_state(V * K, 0);
+    vector<u8> next_state(V * K, 0);
+    vector<u8> rev_state(V * K, 0);
+    vector<u64> stubs(V, 0);
+
+    u64 windows_executed = 0;
+    u64 total_rooms_evolved = 0;
+    u64 total_trits_evolved = 0;
+    u64 total_bytes_read = 0;
+    u64 total_loschmidt_mismatches = 0;
+    u64 total_invariant_failures = 0;
+    int pinned_matches = 0;
+    int hashes_recorded = 0;
+    int hash_mismatches = 0;
+    int read_failures = 0;
+    bool all_ok = true;
+
+    for (int sec = start_sector; sec <= end_sector; ++sec) {
+        if (max_windows_to_run > 0 && (windows_executed + resumed_windows) >= max_windows_to_run) break;
+
+        std::ostringstream ss;
+        ss << dir << "/sector-" << std::setw(3) << std::setfill('0') << sec << ".rooms";
+        string path = ss.str();
+
+        std::ifstream sector_file(path, std::ios::binary);
+        if (!sector_file.is_open()) {
+            read_failures++;
+            std::cerr << "[ERROR] Cannot open sector file: " << path << "\n";
+            all_ok = false;
+            if (strict_mode) break;
+            continue;
+        }
+
+        sector_file.seekg(0, std::ios::end);
+        u64 file_size = sector_file.tellg();
+
+        for (int win = 0; win < WINDOWS_PER_SECTOR; ++win) {
+            if (resume && completed_set.count({sec, win})) {
+                resumed_windows++;
+                u64 u_rooms = (win == 7233) ? 11008ULL : static_cast<u64>(V);
+                resumed_rooms += u_rooms;
+                continue;
+            }
+
+            if (max_windows_to_run > 0 && (windows_executed + resumed_windows) >= max_windows_to_run) break;
+
+            u64 start_room_offset = 0;
+            u64 end_room_offset = 0;
+            u64 overlap_rooms = 0;
+            u64 unique_rooms = 0;
+            u64 cumulative_sector_rooms = 0;
+
+            if (win < 7233) {
+                start_room_offset = static_cast<u64>(win) * V;
+                end_room_offset = start_room_offset + V;
+                overlap_rooms = 0;
+                unique_rooms = V;
+                cumulative_sector_rooms = end_room_offset;
+            } else {
+                start_room_offset = W7233_START_OFFSET;
+                end_room_offset = SECTOR_ROOMS;
+                overlap_rooms = 2816;
+                unique_rooms = 11008;
+                cumulative_sector_rooms = SECTOR_ROOMS;
+            }
+
+            if ((start_room_offset + V) * 8 > file_size) {
+                read_failures++;
+                std::cerr << "[ERROR] Bounds failure: Sector " << sec << " window " << win
+                          << " offset " << start_room_offset << " > file size " << file_size << "\n";
+                all_ok = false;
+                if (strict_mode) break;
+                continue;
+            }
+
+            sector_file.seekg(start_room_offset * 8);
+            sector_file.read(reinterpret_cast<char*>(stubs.data()), WINDOW_BYTES);
+            if (!sector_file) {
+                read_failures++;
+                std::cerr << "[ERROR] Read failure: Sector " << sec << " window " << win << "\n";
+                all_ok = false;
+                if (strict_mode) break;
+                continue;
+            }
+
+            total_bytes_read += WINDOW_BYTES;
+            string win_sha256 = asolaria::SHA256::hash_bytes(reinterpret_cast<const uint8_t*>(stubs.data()), WINDOW_BYTES);
+
+            string auth_status;
+            bool is_pinned = (start_room_offset == 0 && auth_hashes.count(sec));
+            if (is_pinned) {
+                if (auth_hashes.at(sec) == win_sha256) {
+                    auth_status = "PINNED_MATCH";
+                    pinned_matches++;
+                } else {
+                    auth_status = "HASH_MISMATCH";
+                    hash_mismatches++;
+                    std::cerr << "[ERROR] Pinned hash mismatch on sector " << sec << ": expected " << auth_hashes.at(sec) << ", got " << win_sha256 << "\n";
+                    all_ok = false;
+                }
+            } else {
+                auth_status = "HASH_RECORDED";
+                hashes_recorded++;
+            }
+
+            // Decode 8-byte process rooms to 27 velocity trits
+            for (int cell = 0; cell < V; ++cell) {
+                u64 val = stubs[cell];
+                int base = cell * K;
+                for (int k = 0; k < K; ++k) {
+                    state[base + k] = static_cast<u8>(val % 3);
+                    val /= 3;
+                }
+            }
+
+            // Invariant verification & forward simulation (48 ticks)
+            IntegerInvariants init_inv = compute_integer_invariants(state, v);
+            bool int_inv_ok = true;
+
+            sim_state = state;
+            for (int t = 0; t < TICKS_FORWARD; ++t) {
+                step_universe(sim_state, next_state, col, v, L, t);
+                IntegerInvariants cur_inv = compute_integer_invariants(sim_state, v);
+                if (cur_inv.mass != init_inv.mass || cur_inv.px != init_inv.px ||
+                    cur_inv.py != init_inv.py || cur_inv.pz != init_inv.pz ||
+                    cur_inv.energy_2x != init_inv.energy_2x) {
+                    int_inv_ok = false;
+                }
+            }
+
+            IntegerInvariants final_inv = compute_integer_invariants(sim_state, v);
+            double dE = std::abs(static_cast<double>(final_inv.energy_2x - init_inv.energy_2x) / 2.0);
+
+            // Reversibility check (16 forward + 16 reverse Loschmidt ticks)
+            rev_state = state;
+            for (int t = 0; t < TICKS_LOSCHMIDT; ++t) {
+                step_universe(rev_state, next_state, col, v, L, t);
+                IntegerInvariants cur_inv = compute_integer_invariants(rev_state, v);
+                if (cur_inv.mass != init_inv.mass || cur_inv.px != init_inv.px ||
+                    cur_inv.py != init_inv.py || cur_inv.pz != init_inv.pz ||
+                    cur_inv.energy_2x != init_inv.energy_2x) {
+                    int_inv_ok = false;
+                }
+            }
+            for (int t = TICKS_LOSCHMIDT - 1; t >= 0; --t) {
+                step_universe_backward(rev_state, next_state, col, v, L, t);
+                IntegerInvariants cur_inv = compute_integer_invariants(rev_state, v);
+                if (cur_inv.mass != init_inv.mass || cur_inv.px != init_inv.px ||
+                    cur_inv.py != init_inv.py || cur_inv.pz != init_inv.pz ||
+                    cur_inv.energy_2x != init_inv.energy_2x) {
+                    int_inv_ok = false;
+                }
+            }
+
+            u64 mismatches = 0;
+            for (size_t i = 0; i < state.size(); ++i) {
+                if (state[i] != rev_state[i]) mismatches++;
+            }
+
+            if (!int_inv_ok) total_invariant_failures++;
+            total_loschmidt_mismatches += mismatches;
+
+            bool win_ok = (int_inv_ok && (mismatches == 0) && (dE < 1e-12) && (auth_status != "HASH_MISMATCH"));
+            all_ok &= win_ok;
+            string physics_status = win_ok ? "VERIFIED" : "FAIL";
+
+            // Commit to ledger
+            ledger_out << sec << "," << win << "," << start_room_offset << "," << end_room_offset << ","
+                       << V << "," << overlap_rooms << "," << unique_rooms << "," << cumulative_sector_rooms << ","
+                       << win_sha256 << "," << auth_status << "," << dE << "," << mismatches << ","
+                       << physics_status << "," << TICKS_FORWARD << "," << TICKS_LOSCHMIDT << "\n";
+            ledger_out.flush();
+
+            windows_executed++;
+            total_rooms_evolved += V;
+            total_trits_evolved += static_cast<u64>(V) * K;
+
+            // Periodic progress reporting
+            if (windows_executed % 50 == 0 || win == 0 || win == WINDOWS_PER_SECTOR - 1) {
+                auto t_now = std::chrono::steady_clock::now();
+                double el = std::chrono::duration<double>(t_now - t_start).count();
+                double w_per_sec = (el > 0) ? (windows_executed / el) : 0;
+                double rooms_per_sec = w_per_sec * V;
+                double mb_per_sec = (el > 0) ? ((static_cast<double>(total_bytes_read) / (1024.0 * 1024.0)) / el) : 0;
+                std::cout << "[Mode A] Sec " << std::setw(3) << std::setfill('0') << sec
+                          << " Win " << std::setw(4) << win
+                          << " (" << std::fixed << std::setprecision(1) << (static_cast<double>(cumulative_sector_rooms) * 100.0 / SECTOR_ROOMS) << "% sec) | "
+                          << windows_executed << " run" << (resumed_windows > 0 ? (" (" + std::to_string(resumed_windows) + " resumed)") : "")
+                          << " | " << std::fixed << std::setprecision(2) << el << "s ("
+                          << std::setprecision(1) << w_per_sec << " win/s, "
+                          << std::setprecision(2) << (rooms_per_sec / 1e6) << " Mrooms/s, "
+                          << std::setprecision(1) << mb_per_sec << " MB/s) | "
+                          << (win_ok ? "PASS" : "FAIL") << "\n";
+            }
+        }
+
+        if (max_windows_to_run > 0 && (windows_executed + resumed_windows) >= max_windows_to_run) break;
+        if (!all_ok && strict_mode) break;
+    }
+
+    ledger_out.close();
+
+    auto t_end = std::chrono::steady_clock::now();
+    double elapsed_sec = std::chrono::duration<double>(t_end - t_start).count();
+    double cpu_sec = static_cast<double>(std::clock() - c_start) / CLOCKS_PER_SEC;
+
+    double win_per_sec = (elapsed_sec > 0) ? (windows_executed / elapsed_sec) : 0.0;
+    double rooms_per_sec = win_per_sec * V;
+    double mb_per_sec = (elapsed_sec > 0) ? ((static_cast<double>(total_bytes_read) / (1024.0 * 1024.0)) / elapsed_sec) : 0.0;
+
+    const u64 TOTAL_MODE_A_WINDOWS = 2712750ULL; // 375 * 7234
+    double extrapolated_total_seconds = (win_per_sec > 0) ? (TOTAL_MODE_A_WINDOWS / win_per_sec) : 0.0;
+    double extrapolated_total_hours = extrapolated_total_seconds / 3600.0;
+
+    std::cout << "\n=======================================================================\n";
+    std::cout << " ASOLARIA HOST8 MODE A EXECUTION BENCHMARK SUMMARY:\n";
+    std::cout << "  Windows Executed in this Run: " << windows_executed << "\n";
+    std::cout << "  Windows Resumed from Ledger : " << resumed_windows << " (" << resumed_rooms << " rooms)\n";
+    std::cout << "  Rooms Evolved in this Run   : " << total_rooms_evolved << "\n";
+    std::cout << "  Trits Evolved in this Run   : " << total_trits_evolved << "\n";
+    std::cout << "  Physical Disk Bytes Read    : " << total_bytes_read << " bytes (" << std::fixed << std::setprecision(2) << (static_cast<double>(total_bytes_read) / (1024.0 * 1024.0)) << " MB)\n";
+    std::cout << "  Pinned Hash Matches         : " << pinned_matches << "\n";
+    std::cout << "  Hashes Recorded (No Pin)    : " << hashes_recorded << "\n";
+    std::cout << "  Hash Mismatches             : " << hash_mismatches << "\n";
+    std::cout << "  Read / Bounds Failures      : " << read_failures << "\n";
+    std::cout << "  Integer Invariant Failures  : " << total_invariant_failures << "\n";
+    std::cout << "  Loschmidt Mismatches (trit) : " << total_loschmidt_mismatches << "\n";
+    std::cout << "  Measured Elapsed Time       : " << std::fixed << std::setprecision(2) << elapsed_sec << " s\n";
+    std::cout << "  Measured CPU Time           : " << std::fixed << std::setprecision(2) << cpu_sec << " s\n";
+    std::cout << "  Throughput (Windows / sec)  : " << std::fixed << std::setprecision(2) << win_per_sec << " windows/s\n";
+    std::cout << "  Throughput (Rooms / sec)    : " << std::fixed << std::setprecision(0) << rooms_per_sec << " rooms/s (" << std::setprecision(2) << (rooms_per_sec / 1e6) << " Mrooms/s)\n";
+    std::cout << "  Sustained Disk Read Rate    : " << std::fixed << std::setprecision(2) << mb_per_sec << " MB/s\n";
+    std::cout << "  ---------------------------------------------------------------------\n";
+    std::cout << "  FULL 300 GB EXTRAPOLATION (37.5B Rooms across 2,712,750 Windows):\n";
+    std::cout << "  Extrapolated Runtime        : " << std::fixed << std::setprecision(1) << extrapolated_total_seconds << " s (" << std::setprecision(2) << extrapolated_total_hours << " hours / " << std::setprecision(2) << (extrapolated_total_hours / 24.0) << " days)\n";
+    std::cout << "  Mode A Ledger Written To    : " << ledger_path << "\n";
+    std::cout << "  Overall Execution Status    : " << (all_ok ? "ALL EXECUTED WINDOWS VERIFIED" : "VERIFICATION FAILURE") << "\n";
+    std::cout << "=======================================================================\n";
+
+    if (!manifest_path.empty()) {
+        auto now_c = std::time(nullptr);
+        char buf[64];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", std::gmtime(&now_c));
+
+        std::ofstream mf(manifest_path);
+        mf << "{\n"
+           << "  \"host_identifier\": \"ACER-CLAUDE-FABLE5\",\n"
+           << "  \"compiler_version\": \"" << __VERSION__ << "\",\n"
+           << "  \"timestamp_iso\": \"" << buf << "\",\n"
+           << "  \"execution_mode\": \"MODE_A_INDEPENDENT_BOUNDED_LATTICE\",\n"
+           << "  \"start_sector\": " << start_sector << ",\n"
+           << "  \"end_sector\": " << end_sector << ",\n"
+           << "  \"windows_executed\": " << windows_executed << ",\n"
+           << "  \"windows_resumed\": " << resumed_windows << ",\n"
+           << "  \"rooms_resumed\": " << resumed_rooms << ",\n"
+           << "  \"rooms_evolved\": " << total_rooms_evolved << ",\n"
+           << "  \"trits_evolved\": " << total_trits_evolved << ",\n"
+           << "  \"bytes_read\": " << total_bytes_read << ",\n"
+           << "  \"pinned_matches\": " << pinned_matches << ",\n"
+           << "  \"hashes_recorded\": " << hashes_recorded << ",\n"
+           << "  \"hash_mismatches\": " << hash_mismatches << ",\n"
+           << "  \"read_failures\": " << read_failures << ",\n"
+           << "  \"invariant_failures\": " << total_invariant_failures << ",\n"
+           << "  \"loschmidt_mismatches\": " << total_loschmidt_mismatches << ",\n"
+           << "  \"elapsed_seconds\": " << elapsed_sec << ",\n"
+           << "  \"cpu_seconds\": " << cpu_sec << ",\n"
+           << "  \"windows_per_second\": " << win_per_sec << ",\n"
+           << "  \"rooms_per_second\": " << rooms_per_sec << ",\n"
+           << "  \"mb_per_second\": " << mb_per_sec << ",\n"
+           << "  \"extrapolated_full_300gb_seconds\": " << extrapolated_total_seconds << ",\n"
+           << "  \"extrapolated_full_300gb_hours\": " << extrapolated_total_hours << ",\n"
+           << "  \"all_ok\": " << (all_ok ? "true" : "false") << "\n"
+           << "}\n";
+        mf.close();
+        std::cout << "  Execution manifest written to: " << manifest_path << "\n";
+    }
+
     return all_ok;
 }
 
@@ -1411,9 +1827,21 @@ static bool run_host8_suite(bool strict_mode = false, const string& custom_dir =
         vector<u8> rev_state = state;
         for (int t = 0; t < 16; ++t) {
             step_universe(rev_state, next_state, col, v, L, t);
+            IntegerInvariants cur_inv = compute_integer_invariants(rev_state, v);
+            if (cur_inv.mass != init_inv.mass || cur_inv.px != init_inv.px ||
+                cur_inv.py != init_inv.py || cur_inv.pz != init_inv.pz ||
+                cur_inv.energy_2x != init_inv.energy_2x) {
+                int_inv_ok = false;
+            }
         }
         for (int t = 15; t >= 0; --t) {
             step_universe_backward(rev_state, next_state, col, v, L, t);
+            IntegerInvariants cur_inv = compute_integer_invariants(rev_state, v);
+            if (cur_inv.mass != init_inv.mass || cur_inv.px != init_inv.px ||
+                cur_inv.py != init_inv.py || cur_inv.pz != init_inv.pz ||
+                cur_inv.energy_2x != init_inv.energy_2x) {
+                int_inv_ok = false;
+            }
         }
         u64 mismatches = 0;
         for (size_t i = 0; i < state.size(); ++i) {
@@ -1521,6 +1949,7 @@ int main(int argc, char** argv) {
     bool run_host8 = false;
     bool run_host8_375 = false;
     bool run_host8_boundary = false;
+    bool run_host8_mode_a_flag = false;
     bool host8_strict = false;
     bool standalone = false;
     string custom_host8_dir = "";
@@ -1528,6 +1957,14 @@ int main(int argc, char** argv) {
     string manifest_path = "";
     u64 host8_offset = 0;
     vector<int> custom_sectors;
+
+    // Mode A batch flags
+    u64 mode_a_max_windows = 0;
+    int mode_a_start_sector = 0;
+    int mode_a_end_sector = 374;
+    bool mode_a_resume = false;
+    string checkpoint_ledger_path = "host8_mode_a_checkpoint.ledger";
+
     bool ok = true;
 
     for (int i = 1; i < argc; ++i) {
@@ -1537,6 +1974,12 @@ int main(int argc, char** argv) {
         if (arg == "--host8-strict") { host8_strict = true; run_host8 = true; }
         if (arg == "--host8-375") { run_host8_375 = true; run_host8 = true; host8_strict = true; }
         if (arg == "--host8-boundary-test") { run_host8_boundary = true; }
+        if (arg == "--host8-mode-a") { run_host8_mode_a_flag = true; }
+        if (arg == "--windows" && i + 1 < argc) { mode_a_max_windows = std::stoull(argv[++i]); }
+        if (arg == "--start-sector" && i + 1 < argc) { mode_a_start_sector = std::stoi(argv[++i]); }
+        if (arg == "--end-sector" && i + 1 < argc) { mode_a_end_sector = std::stoi(argv[++i]); }
+        if (arg == "--resume") { mode_a_resume = true; }
+        if (arg == "--checkpoint-ledger" && i + 1 < argc) { checkpoint_ledger_path = argv[++i]; }
         if (arg == "--host8-offset" && i + 1 < argc) { host8_offset = std::stoull(argv[++i]); }
         if (arg == "--host8-sectors" && i + 1 < argc) {
             string sec_str = argv[++i];
@@ -1554,7 +1997,11 @@ int main(int argc, char** argv) {
         if (arg == "--standalone") standalone = true;
     }
 
-    if (run_host8_boundary) {
+    if (run_host8_mode_a_flag) {
+        ok &= run_host8_mode_a(custom_host8_dir, mode_a_start_sector, mode_a_end_sector,
+                               mode_a_max_windows, mode_a_resume, checkpoint_ledger_path,
+                               manifest_path, host8_strict || true);
+    } else if (run_host8_boundary) {
         ok &= run_host8_boundary_mode_a(custom_host8_dir, custom_output);
     } else if (standalone) {
         ok &= run_four_arms();

@@ -16,8 +16,9 @@
 > **Independent Verification & Peer Review Audit Responses**:
 > - [INDEPENDENT_REPRODUCTION_VERIFICATION.md](INDEPENDENT_REPRODUCTION_VERIFICATION.md): Independent GCC 14.2 C++ execution results confirming 288/288 distinct gates, 46,656 passed invariant checks, 100% Loschmidt recurrence, and 7-decimal place agreement across all published observables.
 > - [ROTATIONAL_SYMMETRY_DERIVATION.md](ROTATIONAL_SYMMETRY_DERIVATION.md): Mathematical derivation of D3Q27 velocity tensor moments under $O_h$, fourth-rank cubic isotropy condition ($w_1 = 2w_2 + 8w_3$), and experimental confirmation of $SO(3)$ rotational symmetry recovery ($\mathcal{O}(k^2) \to 0$, anisotropy drops to $1.14\%$ at $L=48$).
+> - [HOST8_ROTATIONAL_ENSEMBLE_ANALYSIS.md](HOST8_ROTATIONAL_ENSEMBLE_ANALYSIS.md): Empirical verification of velocity tensors across 300,000 rooms (8.1M trits) of the 300 GB Host8 engine (second-order anisotropy $<0.05\%$) and mathematical decomposition of the 288 collision gates into 18 closed $O_h$ orbits.
 > - [PEER_REVIEW_RESPONSE_6132353.md](PEER_REVIEW_RESPONSE_6132353.md): Point-by-point technical resolution of audit queries (QR-fitted acoustic isotropy, distinct 288-gate alternative rule, hyperbolic thermal transport, and coherent vortex mode decomposition).
-> - [`independent_audit/`](independent_audit/): Directory containing the independent C++ checker executables (`independent_cpp_equilibrium.cpp`, `independent_physics_probes.cpp`) and the SciPy variable-projection observer script (`independent_fit.py`).
+> - [`independent_audit/`](independent_audit/): Directory containing the independent C++ checker executables (`independent_cpp_equilibrium.cpp`, `independent_physics_probes.cpp`, `independent_rotation_equivariance.cpp`) and the SciPy variable-projection observer script (`independent_fit.py`, `fit_thermal_models.py`).
 > - [`host8_verification_provenance.csv`](host8_verification_provenance.csv): Strict cryptographic SHA-256 provenance hashes for the 110,592-byte physical binary room blocks loaded from the 300 GB Host8 engine.
 
 ---

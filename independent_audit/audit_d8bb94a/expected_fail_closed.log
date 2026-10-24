@@ -1,0 +1,6 @@
+FAIL: missing /mnt/data/data/host8_samples/sector-000.rooms
+FAIL: missing /mnt/data/data/host8_samples/sector-187.rooms
+FAIL: missing /mnt/data/data/host8_samples/sector-374.rooms
+FAIL: missing Host8 response summary CSV
+
+FAIL: cryptographic/data integrity checks; acoustic fits are diagnostic, not proof of a wave law

@@ -5,7 +5,14 @@
 // authenticated Host 8 microstates, runs paired unperturbed control and
 // perturbed trajectories, and measures the differential linear response:
 //   Delta A(t) = A_pert(t) - A_ctrl(t)
-// Testing both Axis (3,0,0) and Oblique (2,2,1) under Standard Arm 3 and Arm 5.
+//
+// Updates in commit d8bb94a audit response:
+// 1. Full 288-gate standard Arm 3 scheduler: identical space-time gate mixing:
+//    (t * 32 + cell * 17 + j * 37) % total_gates across all 288 gates.
+// 2. Machine-exact mass conservation: Delta M == 0 via paired crest-to-trough
+//    conjugate antinode transfers, with Delta P == (0,0,0) and Delta E == 0.
+// 3. Strict qualification gate: requires cycles >= 3.0, R^2 >= 0.70, and no
+//    fit-boundary saturation. Unqualified fits report cs = 0.0 (non-acoustic).
 // ============================================================================
 
 #include "acoustic_damped_fit.h"
@@ -42,7 +49,7 @@ static inline int cell_index(int x, int y, int z, int L) {
 }
 
 // ----------------------------------------------------------------------------
-// True 288-Gate Standard Arm 3 Collision Operator
+// True 288-Gate Standard Arm 3 Collision Operator with Full Space-Time Mixing
 // ----------------------------------------------------------------------------
 struct Arm3Gate {
     int a, b, c, d;
@@ -108,24 +115,26 @@ static vector<Arm3Gate> make_arm3_gates(const array<asolaria::Vel, K>& v) {
     return gates;
 }
 
-static inline void apply_arm3_cell(u8* cell, const vector<Arm3Gate>& gates) {
-    for (int g = 0; g < 32; ++g) {
-        const auto& gate = gates[g];
-        int in_code = cell[gate.a] + 3 * (cell[gate.b] + 3 * (cell[gate.c] + 3 * cell[gate.d]));
-        int out_code = gate.lut[in_code];
-        cell[gate.a] = static_cast<u8>(out_code % 3); out_code /= 3;
-        cell[gate.b] = static_cast<u8>(out_code % 3); out_code /= 3;
-        cell[gate.c] = static_cast<u8>(out_code % 3); out_code /= 3;
-        cell[gate.d] = static_cast<u8>(out_code % 3);
-    }
-}
-
 static void step_lattice_arm3(vector<u8>& state, vector<u8>& scratch,
                               const vector<Arm3Gate>& gates,
-                              const array<asolaria::Vel, K>& v, int L) {
+                              const array<asolaria::Vel, K>& v, int L, int t) {
     int num_cells = L * L * L;
-    for (int c = 0; c < num_cells; ++c) {
-        apply_arm3_cell(&state[c * K], gates);
+    size_t total_c = gates.size();
+    constexpr int gates_per_cell = 32;
+    for (int cell = 0; cell < num_cells; ++cell) {
+        int base = cell * K;
+        for (int j = 0; j < gates_per_cell; ++j) {
+            size_t which = (static_cast<size_t>(t) * gates_per_cell +
+                            static_cast<size_t>(cell) * 17 +
+                            static_cast<size_t>(j) * 37) % total_c;
+            const auto& gate = gates[which];
+            int in_code = state[base + gate.a] + 3 * (state[base + gate.b] + 3 * (state[base + gate.c] + 3 * state[base + gate.d]));
+            int out_code = gate.lut[in_code];
+            state[base + gate.a] = static_cast<u8>(out_code % 3); out_code /= 3;
+            state[base + gate.b] = static_cast<u8>(out_code % 3); out_code /= 3;
+            state[base + gate.c] = static_cast<u8>(out_code % 3); out_code /= 3;
+            state[base + gate.d] = static_cast<u8>(out_code % 3);
+        }
     }
     for (int x = 0; x < L; ++x) {
         for (int y = 0; y < L; ++y) {
@@ -249,26 +258,47 @@ static ResponseResult run_response_probe(
         ctrl_amp[t] = compute_mode_amplitude(ctrl_state, L, kx, ky, kz);
         if (t < total_ticks) {
             if (use_arm5) step_lattice_arm5(ctrl_state, scratch, arm5_edge_gates, arm5_d, v, L);
-            else          step_lattice_arm3(ctrl_state, scratch, arm3_gates, v, L);
+            else          step_lattice_arm3(ctrl_state, scratch, arm3_gates, v, L, t);
         }
     }
 
-    // 2. Perturbed Run: Apply small density perturbation on rest channel (ki = 13, v = (0,0,0))
-    // This preserves zero net momentum and minimizes initial shell bias
+    // 2. Perturbed Run: Apply EXACT mass-conserving conjugate antinode perturbation
+    // Transfers 1 trit from trough to crest on the rest channel (ki = 13, v = (0,0,0))
+    // Guarantees machine-exact: Delta M == 0, Delta P == (0,0,0), Delta E == 0.
     vector<u8> pert_state = base_state;
     const int rest_idx = 13;
+    int dx = (kx != 0) ? (L / (2 * kx)) : 0;
+    int dy = (ky != 0) ? (L / (2 * ky)) : 0;
+    int dz = 0;
+    // For Oblique (2,2,1) on L=24: k*d = (2*0 + 2*0 + 1*12) * 2pi/24 = pi -> d = (0,0,12)
+    if (kx == 2 && ky == 2 && kz == 1) {
+        dx = 0; dy = 0; dz = 12;
+    }
+
+    int transfers = 0;
     for (int x = 0; x < L; ++x) {
         for (int y = 0; y < L; ++y) {
             for (int z = 0; z < L; ++z) {
                 int cell = cell_index(x, y, z, L);
                 double phase = 2.0 * pi * (kx * x + ky * y + kz * z) / static_cast<double>(L);
                 double c = std::cos(phase);
-                u8& val = pert_state[cell * K + rest_idx];
-                if (c > 0.3 && val < 2) val += 1;
-                else if (c < -0.3 && val > 0) val -= 1;
+                if (c > 0.3) {
+                    int x2 = (x + dx + L) % L;
+                    int y2 = (y + dy + L) % L;
+                    int z2 = (z + dz + L) % L;
+                    int cell2 = cell_index(x2, y2, z2, L);
+                    u8& v1 = pert_state[cell * K + rest_idx];
+                    u8& v2 = pert_state[cell2 * K + rest_idx];
+                    if (v1 < 2 && v2 > 0) {
+                        v1 += 1;
+                        v2 -= 1;
+                        transfers++;
+                    }
+                }
             }
         }
     }
+    assert(transfers > 0);
 
     vector<double> diff_amp(total_ticks + 1, 0.0);
     vector<double> times(total_ticks + 1, 0.0);
@@ -280,21 +310,24 @@ static ResponseResult run_response_probe(
                << fixed << setprecision(6) << diff_amp[t] << "," << pert_a << "," << ctrl_amp[t] << "\n";
         if (t < total_ticks) {
             if (use_arm5) step_lattice_arm5(pert_state, scratch, arm5_edge_gates, arm5_d, v, L);
-            else          step_lattice_arm3(pert_state, scratch, arm3_gates, v, L);
+            else          step_lattice_arm3(pert_state, scratch, arm3_gates, v, L, t);
         }
     }
 
     // 3. QR Variable-Projection Damped Harmonic Fit
     const auto fit = acoustic::fit(times, diff_amp);
 
-    double cs = fit.valid ? (fit.omega / k_mag) : 0.0;
+    bool at_boundary = (std::abs(fit.omega - pi / (2.0 * total_ticks)) < 1e-4 ||
+                        std::abs(fit.omega - 0.99 * pi) < 1e-4 ||
+                        std::abs(fit.alpha - 20.0 / total_ticks) < 1e-4);
     double cycles = fit.cycles;
-    bool pass_3_cycle = (cycles >= 3.0);
+    bool pass_qualification = (fit.valid && cycles >= 3.0 && fit.r_squared >= 0.70 && !at_boundary);
+    double cs = pass_qualification ? (fit.omega / k_mag) : 0.0;
 
     return ResponseResult{
         kernel_name, sector_name, L, mode_name,
         kx, ky, kz, k_mag, fit.omega, cs, fit.alpha,
-        fit.r_squared, cycles, pass_3_cycle
+        fit.r_squared, cycles, pass_qualification
     };
 }
 
@@ -307,6 +340,8 @@ int main(int argc, char* argv[]) {
     std::cout << "=======================================================================\n";
     std::cout << " ASOLARIA HOST8-CONDITIONED LINEAR RESPONSE BENCHMARK\n";
     std::cout << " Directly Probes Differential Acoustic Response on Authenticated Microstates\n";
+    std::cout << " Standard Arm 3 (288-gate space-time mixing) vs Equivariant Arm 5\n";
+    std::cout << " Delta M == 0 Machine-Exact Conserved Conjugate-Antinode Transfer\n";
     std::cout << " Delta A(t) = A_pert(t) - A_ctrl(t) [Zero Thermal Noise Floor]\n";
     std::cout << "=======================================================================\n";
 
@@ -366,43 +401,39 @@ int main(int argc, char* argv[]) {
                   << (match ? "[AUTHENTICATED]" : "[MISMATCH]") << " <<<\n";
         assert(match);
 
-        // 1. Arm 3 Axis & Oblique
-        std::cout << "--- Arm 3 Linear Response ---\n";
+        // 1. Arm 3 Axis & Oblique (288-gate space-time scheduler)
+        std::cout << "--- Standard Arm 3 (288-gate space-time mixer) ---\n";
         auto a3_ax = run_response_probe("Standard Arm 3", sec, state, L, 3, 0, 0, "Axis_3_0_0",
                                         false, arm5_edge_gates, arm5_d, arm3_gates, v, ticks, ts_csv);
         auto a3_ob = run_response_probe("Standard Arm 3", sec, state, L, 2, 2, 1, "Oblique_2_2_1",
                                         false, arm5_edge_gates, arm5_d, arm3_gates, v, ticks, ts_csv);
         all_results.push_back(a3_ax);
         all_results.push_back(a3_ob);
-        double a3_aniso = std::abs(a3_ax.cs - a3_ob.cs) / ((a3_ax.cs + a3_ob.cs) / 2.0) * 100.0;
         std::cout << "  - Axis (3,0,0)   : cs=" << fixed << setprecision(5) << a3_ax.cs
                   << " | omega=" << a3_ax.omega << " | alpha=" << a3_ax.alpha
                   << " | R^2=" << a3_ax.r_squared << " | cycles=" << a3_ax.cycles
-                  << " | 3-cycle=" << (a3_ax.three_cycle_pass ? "PASS" : "FAIL") << "\n";
+                  << " | Qualified=" << (a3_ax.three_cycle_pass ? "YES" : "NO (Non-Acoustic)") << "\n";
         std::cout << "  - Oblique (2,2,1): cs=" << fixed << setprecision(5) << a3_ob.cs
                   << " | omega=" << a3_ob.omega << " | alpha=" << a3_ob.alpha
                   << " | R^2=" << a3_ob.r_squared << " | cycles=" << a3_ob.cycles
-                  << " | 3-cycle=" << (a3_ob.three_cycle_pass ? "PASS" : "FAIL") << "\n";
-        std::cout << "  ===> Sector " << sec << " Arm 3 Anisotropy: " << setprecision(2) << a3_aniso << "%\n";
+                  << " | Qualified=" << (a3_ob.three_cycle_pass ? "YES" : "NO (Non-Acoustic)") << "\n";
 
-        // 2. Arm 5 Axis & Oblique
-        std::cout << "--- Arm 5 Linear Response ---\n";
+        // 2. Arm 5 Axis & Oblique (Oh-Equivariant Inter-Shell)
+        std::cout << "--- Equivariant Arm 5 (Oh Inter-Shell) ---\n";
         auto a5_ax = run_response_probe("Equivariant Arm 5", sec, state, L, 3, 0, 0, "Axis_3_0_0",
                                         true, arm5_edge_gates, arm5_d, arm3_gates, v, ticks, ts_csv);
         auto a5_ob = run_response_probe("Equivariant Arm 5", sec, state, L, 2, 2, 1, "Oblique_2_2_1",
                                         true, arm5_edge_gates, arm5_d, arm3_gates, v, ticks, ts_csv);
         all_results.push_back(a5_ax);
         all_results.push_back(a5_ob);
-        double a5_aniso = std::abs(a5_ax.cs - a5_ob.cs) / ((a5_ax.cs + a5_ob.cs) / 2.0) * 100.0;
         std::cout << "  - Axis (3,0,0)   : cs=" << fixed << setprecision(5) << a5_ax.cs
                   << " | omega=" << a5_ax.omega << " | alpha=" << a5_ax.alpha
                   << " | R^2=" << a5_ax.r_squared << " | cycles=" << a5_ax.cycles
-                  << " | 3-cycle=" << (a5_ax.three_cycle_pass ? "PASS" : "FAIL") << "\n";
+                  << " | Qualified=" << (a5_ax.three_cycle_pass ? "YES" : "NO (Non-Acoustic)") << "\n";
         std::cout << "  - Oblique (2,2,1): cs=" << fixed << setprecision(5) << a5_ob.cs
                   << " | omega=" << a5_ob.omega << " | alpha=" << a5_ob.alpha
                   << " | R^2=" << a5_ob.r_squared << " | cycles=" << a5_ob.cycles
-                  << " | 3-cycle=" << (a5_ob.three_cycle_pass ? "PASS" : "FAIL") << "\n";
-        std::cout << "  ===> Sector " << sec << " Arm 5 Anisotropy: " << setprecision(2) << a5_aniso << "%\n";
+                  << " | Qualified=" << (a5_ob.three_cycle_pass ? "YES" : "NO (Non-Acoustic)") << "\n";
     }
 
     for (const auto& r : all_results) {

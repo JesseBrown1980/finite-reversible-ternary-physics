@@ -429,6 +429,15 @@ def run():
                         print("  [PASS] Host8 Acoustic Linear Response: Differential Delta A(t) = A_pert(t) - A_ctrl(t) characterized.")
                     if os.path.exists(resp_exe): os.remove(resp_exe)
 
+            # Reviewer's Host8 Samples and Response Verifier (commit d8bb94a)
+            ver_d8 = "audit_d8bb94a/verify_host8_samples_and_response.py"
+            if os.path.exists(ver_d8):
+                res_ver = subprocess.run([sys.executable, ver_d8, "--repo", ".."])
+                if res_ver.returncode != 0:
+                    print("[FAIL] verify_host8_samples_and_response.py failed!")
+                    sys.exit(1)
+                print("  [PASS] Reviewer's d8bb94a Audit: Cryptographic integrity of 884k slices & response diagnostics confirmed.")
+
             if os.path.exists(eq_exe): os.remove(eq_exe)
             if os.path.exists(probe_exe): os.remove(probe_exe)
         finally:

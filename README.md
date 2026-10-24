@@ -203,4 +203,5 @@ This script will:
 - [`test_host8_acoustic_response.cpp`](test_host8_acoustic_response.cpp): Differential linear acoustic response probe on authenticated Host 8 microstates ($\Delta A(t) = A_{\text{pert}}(t) - A_{\text{ctrl}}(t)$).
 - [`host8_linear_response_results.csv`](host8_linear_response_results.csv): Measured acoustic response and damping parameters on Host 8.
 - [`independent_audit/audit_9343273/`](independent_audit/audit_9343273/): Complete independent audit suite for commit `9343273`, including strict fail-closed authenticator (`host8_independent_verifier.py`) and native room roundtrip (`native_synthetic_room_roundtrip_portable.cpp`).
+- [`independent_audit/audit_d8bb94a/`](independent_audit/audit_d8bb94a/): Reviewer's independent audit suite for commit `d8bb94a`, containing `INDEPENDENT_REVIEW_D8BB94A.md` and `verify_host8_samples_and_response.py`.
 - [`LICENSE`](LICENSE): MIT License.

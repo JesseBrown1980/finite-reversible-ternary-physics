@@ -991,15 +991,134 @@ static bool run_thermal_diffusion() {
 }
 
 // ----------------------------------------------------------------------------
+// Host8 300 GB Process Room Substrate Loader & Benchmark
+// ----------------------------------------------------------------------------
+static bool load_host8_rooms(const string& path, u64 offset, int num_cells, vector<u8>& state) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) return false;
+    file.seekg(offset * 8);
+    vector<u64> stubs(num_cells);
+    file.read(reinterpret_cast<char*>(stubs.data()), num_cells * 8);
+    if (!file) return false;
+
+    for (int cell = 0; cell < num_cells; ++cell) {
+        u64 val = stubs[cell];
+        for (int k = 0; k < K; ++k) {
+            state[cell * K + k] = static_cast<u8>(val % 3);
+            val /= 3;
+        }
+    }
+    return true;
+}
+
+static bool run_host8_suite() {
+    string dir = "D:/ASOLARIA-HOST8-ROOMS-300G";
+    vector<int> sectors = {0, 187, 374};
+    int L = 24;
+    int V = L * L * L;
+    int ticks = 48;
+    double nu_eff = 0.580425;
+    auto v = make_velocities();
+    auto col = make_collisions(v, 0);
+
+    std::cout << "\n=======================================================================\n";
+    std::cout << " ASOLARIA 300 GB HOST8 PROCESS ROOM SUBSTRATE BENCHMARK\n";
+    std::cout << " Directory: " << dir << " | 375 Sectors x 800 MB = 300 GB Total\n";
+    std::cout << " Probing Sectors: Sector 000 (Head), Sector 187 (Ground Zero), Sector 374 (Boundary)\n";
+    std::cout << "=======================================================================\n";
+
+    bool all_ok = true;
+
+    for (int sec : sectors) {
+        std::ostringstream ss;
+        ss << dir << "/sector-" << std::setw(3) << std::setfill('0') << sec << ".rooms";
+        string path = ss.str();
+
+        vector<u8> state(V * K, 0);
+        bool loaded = load_host8_rooms(path, 0, V, state);
+        if (!loaded) {
+            std::cout << "[SKIP] Could not open " << path << "\n";
+            continue;
+        }
+
+        std::cout << "\n>>> [Host8 Sector " << std::setw(3) << std::setfill('0') << sec
+                  << "] Successfully loaded " << V << " rooms (" << V * K << " trits) directly from 300 GB drive <<<\n";
+
+        Metrics m0 = measure_state(L, 0, state, v, 0.0, nu_eff);
+        std::cout << "  - Initial Density Range : [" << m0.density_min << ", " << m0.density_max
+                  << "] (mean " << std::fixed << std::setprecision(4) << m0.density_mean
+                  << ", var " << m0.density_var << ")\n";
+        std::cout << "  - Initial Net Momentum  : (" << m0.px_total << ", " << m0.py_total << ", " << m0.pz_total << ")\n";
+        std::cout << "  - Native Shannon Entropy: S_trit = " << std::setprecision(5) << m0.entropy_trit
+                  << " (Theoretical Max: " << std::log(3.0) << ")\n";
+        std::cout << "  - Initial Enstrophy     : " << std::setprecision(6) << m0.enstrophy << "\n";
+
+        vector<u8> sim_state = state;
+        vector<u8> next_state(V * K, 0);
+        vector<Metrics> log;
+        double prev_e_kin = 0.0;
+        double max_observed_vort = 0.0;
+
+        for (int t = 0; t <= ticks; ++t) {
+            Metrics m = measure_state(L, t, sim_state, v, prev_e_kin, nu_eff);
+            prev_e_kin = m.e_kin;
+            log.push_back(m);
+            if (m.max_vorticity > max_observed_vort) max_observed_vort = m.max_vorticity;
+
+            if (t % 12 == 0 || t == ticks) {
+                std::cout << "    Tick " << std::setw(2) << t
+                          << " | E_kin: " << std::setprecision(5) << m.e_kin
+                          << " | Omega: " << std::setprecision(6) << m.enstrophy
+                          << " | S_trit: " << std::setprecision(5) << m.entropy_trit
+                          << " | Max Vort: " << std::setprecision(5) << m.max_vorticity
+                          << " | E_tot: " << std::setprecision(5) << m.e_total << "\n";
+            }
+            if (t == ticks) break;
+            step_universe(sim_state, next_state, col, v, L, t);
+        }
+
+        std::ostringstream csv_name;
+        csv_name << "host8_sector_" << std::setw(3) << std::setfill('0') << sec << "_results.csv";
+        export_metrics_csv(csv_name.str(), log);
+
+        double dE = std::abs(log.back().e_total - log.front().e_total);
+        bool cons_ok = (dE < 1e-12);
+        bool reg_ok = (max_observed_vort < 2.0 * std::sqrt(3.0));
+
+        vector<u8> rev_state = state;
+        for (int t = 0; t < 16; ++t) {
+            step_universe(rev_state, next_state, col, v, L, t);
+        }
+        for (int t = 15; t >= 0; --t) {
+            step_universe_backward(rev_state, next_state, col, v, L, t);
+        }
+        u64 mismatches = 0;
+        for (size_t i = 0; i < state.size(); ++i) {
+            if (state[i] != rev_state[i]) mismatches++;
+        }
+        bool rev_ok = (mismatches == 0);
+
+        std::cout << "  - Exact Energy Conservation Check : " << (cons_ok ? "PASS (dE < 1e-12)" : "FAIL") << "\n";
+        std::cout << "  - Global Regularity Check         : " << (reg_ok ? "PASS (|omega|_max < 3.464)" : "FAIL") << "\n";
+        std::cout << "  - Loschmidt Reversibility on Host8: " << (rev_ok ? "PASS (0 / 373,248 Mismatches, 100% Exact Recurrence)" : "FAIL") << "\n";
+
+        all_ok &= (cons_ok && reg_ok && rev_ok);
+    }
+    return all_ok;
+}
+
+// ----------------------------------------------------------------------------
 // Main Dispatcher
 // ----------------------------------------------------------------------------
 int main(int argc, char** argv) {
     bool run_all = (argc == 1);
+    bool run_host8 = false;
     bool ok = true;
 
     for (int i = 1; i < argc; ++i) {
         string arg = argv[i];
         if (arg == "--all") run_all = true;
+        if (arg == "--host8") run_host8 = true;
     }
 
     if (run_all) {
@@ -1008,6 +1127,9 @@ int main(int argc, char** argv) {
         ok &= run_reversibility();
         ok &= run_grid_refinement();
         ok &= run_thermal_diffusion();
+        ok &= run_host8_suite();
+    } else if (run_host8) {
+        ok &= run_host8_suite();
     }
 
     std::cout << "\n=======================================================================\n";

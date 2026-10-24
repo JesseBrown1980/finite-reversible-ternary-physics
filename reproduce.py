@@ -73,7 +73,10 @@ def run():
         "arm4_matched_control_results.csv",
         "isotropy_results.csv",
         "grid_refinement_results.csv",
-        "thermal_diffusion_results.csv"
+        "thermal_diffusion_results.csv",
+        "host8_sector_000_results.csv",
+        "host8_sector_187_results.csv",
+        "host8_sector_374_results.csv"
     ]
 
     hashes = {}
@@ -143,6 +146,21 @@ def run():
             print(f"[FAIL] Grid N={r['grid_N']} exceeded discrete vorticity bound!")
             sys.exit(1)
     print("  [PASS] Fixed-Domain Grid Refinement: Peak local vorticity strictly bounded on all grids.")
+
+    # Check 6: Host8 300 GB Substrate Probes (Sectors 000, 187, 374)
+    for sec in ["000", "187", "374"]:
+        f_sec = f"host8_sector_{sec}_results.csv"
+        r_sec = verify_csv(f_sec, ["tick", "e_total", "entropy_trit", "max_vorticity"])
+        e0_sec = float(r_sec[0]["e_total"])
+        max_e_dev = max(abs(float(r["e_total"]) - e0_sec) for r in r_sec)
+        max_vort = max(float(r["max_vorticity"]) for r in r_sec)
+        if max_e_dev > 1e-12:
+            print(f"[FAIL] Host8 Sector {sec} energy deviation: {max_e_dev}")
+            sys.exit(1)
+        if max_vort > 3.46410:
+            print(f"[FAIL] Host8 Sector {sec} exceeded discrete vorticity bound: {max_vort}")
+            sys.exit(1)
+        print(f"  [PASS] Host8 Sector {sec}: Exact energy conservation (dE < 1e-12), bounded vorticity ({max_vort:.4f} < 3.464).")
 
     print("\n=======================================================================")
     print(" ALL AUDIT-CRITICAL PHYSICAL VALIDATION CHECKS PASSED.")

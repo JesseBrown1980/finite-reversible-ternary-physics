@@ -15,6 +15,7 @@
 > [!NOTE]
 > **Independent Verification & Peer Review Audit Responses**:
 > - [INDEPENDENT_REPRODUCTION_VERIFICATION.md](INDEPENDENT_REPRODUCTION_VERIFICATION.md): Independent GCC 14.2 C++ execution results confirming 288/288 distinct gates, 46,656 passed invariant checks, 100% Loschmidt recurrence, and 7-decimal place agreement across all published observables.
+> - [ROTATIONAL_SYMMETRY_DERIVATION.md](ROTATIONAL_SYMMETRY_DERIVATION.md): Mathematical derivation of D3Q27 velocity tensor moments under $O_h$, fourth-rank cubic isotropy condition ($w_1 = 2w_2 + 8w_3$), and experimental confirmation of $SO(3)$ rotational symmetry recovery ($\mathcal{O}(k^2) \to 0$, anisotropy drops to $1.14\%$ at $L=48$).
 > - [PEER_REVIEW_RESPONSE_6132353.md](PEER_REVIEW_RESPONSE_6132353.md): Point-by-point technical resolution of audit queries (QR-fitted acoustic isotropy, distinct 288-gate alternative rule, hyperbolic thermal transport, and coherent vortex mode decomposition).
 > - [`independent_audit/`](independent_audit/): Directory containing the independent C++ checker executables (`independent_cpp_equilibrium.cpp`, `independent_physics_probes.cpp`) and the SciPy variable-projection observer script (`independent_fit.py`).
 > - [`host8_verification_provenance.csv`](host8_verification_provenance.csv): Strict cryptographic SHA-256 provenance hashes for the 110,592-byte physical binary room blocks loaded from the 300 GB Host8 engine.
@@ -141,6 +142,9 @@ This script will:
 - [`acoustic_damped_fit.h`](acoustic_damped_fit.h): QR variable-projection nonlinear damped harmonic estimator.
 - [`sha256.h`](sha256.h): Self-contained, portable SHA-256 implementation for binary block authentication.
 - [`reproduce.py`](reproduce.py): Master test harness with automated assertions on collision distinctness, acoustic fits, Host8 provenance, and independent audit execution.
+- [`ROTATIONAL_SYMMETRY_DERIVATION.md`](ROTATIONAL_SYMMETRY_DERIVATION.md): Mathematical proof of $SO(3)$ rotational symmetry restoration and $O(k^2)$ scaling.
+- [`test_rotational_dispersion.cpp`](test_rotational_dispersion.cpp): Multi-scale acoustic wave dispersion test suite across grid sizes $L=16, 24, 32, 48$.
+- [`rotational_dispersion_results.csv`](rotational_dispersion_results.csv): Measured sound speed and anisotropy data across grid resolutions.
 - [`INDEPENDENT_REPRODUCTION_VERIFICATION.md`](INDEPENDENT_REPRODUCTION_VERIFICATION.md): Independent GCC 14.2 verification audit documenting 7-decimal place numerical agreement.
 - [`PEER_REVIEW_RESPONSE_6132353.md`](PEER_REVIEW_RESPONSE_6132353.md): Point-by-point technical resolution of the peer review audit.
 - [`ROADMAP.md`](ROADMAP.md): Complete scientific roadmap spanning Phases 1, 2, and 3.

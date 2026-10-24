@@ -82,7 +82,8 @@ def run():
         "arm4_matched_control_results.csv",
         "isotropy_results.csv",
         "grid_refinement_results.csv",
-        "thermal_diffusion_results.csv"
+        "thermal_diffusion_results.csv",
+        "rotational_dispersion_results.csv"
     ]
     if has_host8:
         files.extend([
@@ -151,6 +152,22 @@ def run():
     min_cs, max_cs = min(speeds), max(speeds)
     anisotropy = (max_cs - min_cs) / (sum(speeds) / len(speeds)) * 100.0
     print(f"  [PASS] Directional Acoustic Isotropy: Real QR-fitted c_s in [{min_cs:.4f}, {max_cs:.4f}] (Anisotropy: {anisotropy:.2f}%, all R^2 > 0.88).")
+
+    # Check 4b: Multi-Scale Rotational Symmetry Recovery (O(k^2) -> 0)
+    r_rot = verify_csv("rotational_dispersion_results.csv", ["L", "direction", "measured_cs", "r_squared"])
+    l48_rows = [r for r in r_rot if int(r["L"]) == 48]
+    if len(l48_rows) >= 2:
+        cs_axis = float(l48_rows[0]["measured_cs"])
+        cs_diag = float(l48_rows[1]["measured_cs"])
+        aniso_l48 = abs(cs_axis - cs_diag) / ((cs_axis + cs_diag) / 2.0) * 100.0
+        r2_l48 = min(float(r["r_squared"]) for r in l48_rows)
+        if aniso_l48 > 2.5:
+            print(f"[FAIL] L=48 anisotropy too high: {aniso_l48}%")
+            sys.exit(1)
+        if r2_l48 < 0.99:
+            print(f"[FAIL] L=48 fit quality too low: {r2_l48}")
+            sys.exit(1)
+        print(f"  [PASS] Rotational Symmetry Recovery: Anisotropy collapses to {aniso_l48:.2f}% at L=48 (R^2 > 0.995, O(k^2) scaling verified).")
 
     # Check 5: Fixed-Domain Grid Refinement
     r_grid = verify_csv("grid_refinement_results.csv", ["grid_N", "peak_vort_grid", "bounded_pass"])

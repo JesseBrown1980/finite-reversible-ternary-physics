@@ -80,9 +80,11 @@ def run():
         "arm2_thermal_equilibrium_results.csv",
         "arm3_taylor_green_results.csv",
         "arm4_matched_control_results.csv",
+        "arm5_equivariant_results.csv",
         "isotropy_results.csv",
         "grid_refinement_results.csv",
         "thermal_diffusion_results.csv",
+        "corrected_thermal_timeseries.csv",
         "rotational_dispersion_results.csv",
         "matched_k_dispersion_results.csv"
     ]
@@ -127,6 +129,19 @@ def run():
         print(f"[FAIL] Arm 4 energy conservation violated: {max_e_dev4}")
         sys.exit(1)
     print(f"  [PASS] Arm 4 (Alternative Rule): Exact energy conservation (deviation < 1e-12).")
+
+    # Check 2B: Arm 5 (Exact Oh-Equivariant Inter-Shell Rule)
+    r5 = verify_csv("arm5_equivariant_results.csv", ["e_total", "max_vorticity", "coherent_tgv_mode"])
+    e0_5 = float(r5[0]["e_total"])
+    max_e_dev5 = max(abs(float(r["e_total"]) - e0_5) for r in r5)
+    if max_e_dev5 > 1e-12:
+        print(f"[FAIL] Arm 5 energy conservation violated: {max_e_dev5}")
+        sys.exit(1)
+    max_vort5 = max(float(r["max_vorticity"]) for r in r5)
+    if max_vort5 > 3.4641:
+        print(f"[FAIL] Arm 5 vorticity exceeded bound: {max_vort5}")
+        sys.exit(1)
+    print(f"  [PASS] Arm 5 (Exact Oh-Equivariant Inter-Shell Rule): Exact energy conservation (dE < 1e-12) & bounded vorticity.")
 
     # Check 3: Coherent TGV Mode vs Thermal Background
     r3 = verify_csv("arm3_taylor_green_results.csv", ["coherent_tgv_mode", "enstrophy"])

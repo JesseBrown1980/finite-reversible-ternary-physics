@@ -17,6 +17,7 @@
 
 #include "acoustic_damped_fit.h"
 #include "sha256.h"
+#include "equivariant_intershell_kernel.h"
 #include <iostream>
 #include <iomanip>
 #include <vector>
@@ -440,6 +441,31 @@ static void step_universe_backward(vector<u8>& state, vector<u8>& next_state,
     }
 }
 
+static void step_universe_equivariant(vector<u8>& state, vector<u8>& next_state,
+                                     const vector<asolaria::Gate>& edge_gates,
+                                     const asolaria::InterShellData& d,
+                                     const array<Velocity, K>& v, int L) {
+    int V = L * L * L;
+    for (int cell = 0; cell < V; ++cell) {
+        asolaria::apply_full_symmetric_collision(&state[cell * K], edge_gates, d);
+    }
+    for (int x = 0; x < L; ++x) {
+        for (int y = 0; y < L; ++y) {
+            for (int z = 0; z < L; ++z) {
+                int src_cell = idx3d(x, y, z, L);
+                for (int ki = 0; ki < K; ++ki) {
+                    int nx = (x + v[ki].x + L) % L;
+                    int ny = (y + v[ki].y + L) % L;
+                    int nz = (z + v[ki].z + L) % L;
+                    int dst_cell = idx3d(nx, ny, nz, L);
+                    next_state[dst_cell * K + ki] = state[src_cell * K + ki];
+                }
+            }
+        }
+    }
+    state = next_state;
+}
+
 // ----------------------------------------------------------------------------
 // Initial State Generators
 // ----------------------------------------------------------------------------
@@ -601,18 +627,24 @@ static bool run_four_arms() {
               << differing_gates << " / " << col_std.size() << "\n";
     std::cout << "=======================================================================\n";
 
+    auto v_vels = asolaria::make_vels();
+    auto edge_gates = asolaria::make_edge_gates(v_vels);
+    auto intershell_data = asolaria::init_intershell_data(v_vels);
+
     struct ArmConfig {
         string name;
         string csv_file;
         vector<u8> state;
         const vector<Collision>& col;
+        bool is_equivariant;
     };
 
     vector<ArmConfig> arms = {
-        {"Arm 1: Quiescent Ground State (Zero-Flow)", "arm1_quiescent_results.csv", init_quiescent(L), col_std},
-        {"Arm 2: Statistically Equilibrated Ensemble", "arm2_thermal_equilibrium_results.csv", init_thermal_equilibrium(L, col_std, v, 25), col_std},
-        {"Arm 3: Orthogonal Taylor-Green Vortex", "arm3_taylor_green_results.csv", init_taylor_green_exact(L, 0.20, v), col_std},
-        {"Arm 4: Genuinely Distinct Alternative Rule", "arm4_matched_control_results.csv", init_thermal_equilibrium(L, col_alt, v, 25), col_alt}
+        {"Arm 1: Quiescent Ground State (Zero-Flow)", "arm1_quiescent_results.csv", init_quiescent(L), col_std, false},
+        {"Arm 2: Statistically Equilibrated Ensemble", "arm2_thermal_equilibrium_results.csv", init_thermal_equilibrium(L, col_std, v, 25), col_std, false},
+        {"Arm 3: Orthogonal Taylor-Green Vortex", "arm3_taylor_green_results.csv", init_taylor_green_exact(L, 0.20, v), col_std, false},
+        {"Arm 4: Genuinely Distinct Alternative Rule", "arm4_matched_control_results.csv", init_thermal_equilibrium(L, col_alt, v, 25), col_alt, false},
+        {"Arm 5: Exact Oh-Equivariant Inter-Shell TGV", "arm5_equivariant_results.csv", init_taylor_green_exact(L, 0.20, v), col_std, true}
     };
 
     vector<vector<Metrics>> all_logs;
@@ -639,14 +671,18 @@ static bool run_four_arms() {
                           << " | E_tot: " << std::setprecision(5) << m.e_total << "\n";
             }
             if (t == total_ticks) break;
-            step_universe(arm.state, next_state, arm.col, v, L, t);
+            if (arm.is_equivariant) {
+                step_universe_equivariant(arm.state, next_state, edge_gates, intershell_data, v, L);
+            } else {
+                step_universe(arm.state, next_state, arm.col, v, L, t);
+            }
         }
         export_metrics_csv(arm.csv_file, log);
         all_logs.push_back(log);
     }
 
     std::cout << "\n=======================================================================\n";
-    std::cout << " DECISIVE 4-ARM PHYSICAL EQUILIBRIUM COMPARISON (Tick 48):\n";
+    std::cout << " DECISIVE 5-ARM PHYSICAL EQUILIBRIUM COMPARISON (Tick 48):\n";
     std::cout << "----------------------------------------------------------------------------------------------------\n";
     std::cout << std::left << std::setw(32) << "Arm Description"
               << std::setw(11) << "Enstrophy"
@@ -676,15 +712,19 @@ static bool run_four_arms() {
     bool arm3_tgv_coherent = (all_logs[2][0].coherent_tgv_mode > 0.15);
     bool arm4_alt_distinct = (differing_gates == 288 && all_logs[3].back().enstrophy != all_logs[1].back().enstrophy);
     bool arm4_alt_cons = (std::abs(all_logs[3].back().e_total - all_logs[3].front().e_total) < 1e-12);
+    bool arm5_cons = (std::abs(all_logs[4].back().e_total - all_logs[4].front().e_total) < 1e-12);
+    bool arm5_bounded = (all_logs[4].back().max_vorticity < 3.464);
 
     std::cout << "Arm 1 Quiescent Stationarity Check : " << (arm1_quiescent ? "PASS (Zero Spurious Forcing)" : "FAIL") << "\n";
     std::cout << "Arm 2 Thermal Equilibrium Check   : " << (arm2_stationary ? "PASS (Maximal Entropy S = ln 3)" : "FAIL") << "\n";
     std::cout << "Arm 3 Coherent Vortex Mode Check   : " << (arm3_tgv_coherent ? "PASS (A_TGV > 0.15 vs 0.00 Noise)" : "FAIL") << "\n";
     std::cout << "Arm 4 Distinct Collision Gate Set : " << (arm4_alt_distinct ? "PASS (288/288 Gates Differ, Distinct Trajectory)" : "FAIL") << "\n";
     std::cout << "Arm 4 Microcanonical Conservation  : " << (arm4_alt_cons ? "PASS (dE < 1e-12)" : "FAIL") << "\n";
+    std::cout << "Arm 5 Equivariant TGV Conservation : " << (arm5_cons ? "PASS (dE < 1e-12)" : "FAIL") << "\n";
+    std::cout << "Arm 5 Regularity / Bounded Vorticity: " << (arm5_bounded ? "PASS (|omega| < 3.464)" : "FAIL") << "\n";
     std::cout << "=======================================================================\n";
 
-    return (arm1_quiescent && arm2_stationary && arm3_tgv_coherent && arm4_alt_distinct && arm4_alt_cons);
+    return (arm1_quiescent && arm2_stationary && arm3_tgv_coherent && arm4_alt_distinct && arm4_alt_cons && arm5_cons && arm5_bounded);
 }
 
 // ----------------------------------------------------------------------------
@@ -988,6 +1028,64 @@ static bool run_thermal_diffusion() {
     }
     std::cout << "Thermal Transport Note: Demonstrates hyperbolic thermal wave oscillations (Second Sound)\n";
     std::cout << "characteristic of micro-reversible lattice gas transport without artificial damping.\n";
+
+    // Genuine Constant-Density Thermal Gradient under Exact Oh-Equivariant Inter-Shell Kernel
+    auto v_vels = asolaria::make_vels();
+    auto edge_gates = asolaria::make_edge_gates(v_vels);
+    auto intershell_data = asolaria::init_intershell_data(v_vels);
+    vector<u8> realheat(V * K, 1);
+    for (int x = 0; x < L; ++x) {
+        for (int y = 0; y < L; ++y) {
+            for (int z = 0; z < L; ++z) {
+                int c = idx3d(x, y, z, L);
+                int base = c * K;
+                if (x < L / 2) {
+                    realheat[base + 22] = 0; realheat[base + 4] = 0;
+                    realheat[base + 1]  = 2; realheat[base + 25] = 2;
+                } else {
+                    realheat[base + 22] = 2; realheat[base + 4] = 2;
+                    realheat[base + 1]  = 0; realheat[base + 25] = 0;
+                }
+            }
+        }
+    }
+
+    std::ofstream cfile("corrected_thermal_timeseries.csv");
+    cfile << "tick,mean_energy_hot,mean_energy_cold,delta_energy,mean_density_hot,mean_density_cold,net_px,net_py,net_pz\n";
+    for (int t = 0; t <= 48; ++t) {
+        long long eh = 0, ec = 0, nh = 0, nc = 0;
+        long long px = 0, py = 0, pz = 0;
+        for (int x = 0; x < L; ++x) {
+            for (int y = 0; y < L; ++y) {
+                for (int z = 0; z < L; ++z) {
+                    int c = idx3d(x, y, z, L);
+                    int mass = 0, cell_e = 0;
+                    for (int k = 0; k < K; ++k) {
+                        int count = realheat[c * K + k];
+                        mass += count;
+                        cell_e += count * v[k].e;
+                        px += count * v[k].x;
+                        py += count * v[k].y;
+                        pz += count * v[k].z;
+                    }
+                    if (x < L / 2) { eh += cell_e; nh += mass; }
+                    else           { ec += cell_e; nc += mass; }
+                }
+            }
+        }
+        double vol = double(L * L * L / 2);
+        double mean_eh = double(eh) / vol;
+        double mean_ec = double(ec) / vol;
+        double delta_e = double(eh - ec) / vol;
+        double mean_nh = double(nh) / vol;
+        double mean_nc = double(nc) / vol;
+        cfile << t << "," << mean_eh << "," << mean_ec << "," << delta_e << ","
+              << mean_nh << "," << mean_nc << "," << px << "," << py << "," << pz << "\n";
+        if (t < 48) {
+            step_universe_equivariant(realheat, next_state, edge_gates, intershell_data, v, L);
+        }
+    }
+    std::cout << "Exported genuine constant-density thermal time-series to corrected_thermal_timeseries.csv\n";
     return true;
 }
 

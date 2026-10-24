@@ -1,0 +1,19 @@
+INDEPENDENT INTER-SHELL ENGINE
+corner_quadruplets=72 rest_edge_pairs=12
+local_states=5000 active=4213 conservation_failures=0 inverse_failures=0 group_equivariance_failures=0/240000
+shell totals at tick0: 13911 83138 166162 110786
+shell totals at tick48: 13843 83122 166398 110634
+whole_lattice_L=8 rotations=48 trit_checks=663552 mismatches=0
+mass_delta=0 energy_delta=0
+thermal_tick=0 density_range=27..27 energy_range=54..54 mean_half_E_hot=54 mean_half_E_cold=54 momentum_total=-13824,-13824,0
+thermal_initial_collision_active=13824/13824
+thermal_tick=1 density_range=25..29 energy_range=52..56 mean_half_E_hot=54.3333 mean_half_E_cold=53.6667 momentum_total=-13824,-13824,0
+thermal_tick=6 density_range=23..31 energy_range=50..58 mean_half_E_hot=54.5833 mean_half_E_cold=53.4167 momentum_total=-13824,-13824,0
+thermal_tick=12 density_range=23..33 energy_range=49..60 mean_half_E_hot=54.5833 mean_half_E_cold=53.4167 momentum_total=-13824,-13824,0
+thermal_tick=48 density_range=23..35 energy_range=48..63 mean_half_E_hot=54.4167 mean_half_E_cold=53.5833 momentum_total=-13824,-13824,0
+CORRECTED_HEAT t=0 mean_E_hot=56 mean_E_cold=52 delta=4 mean_rho=27,27 netP=0,0,0
+CORRECTED_HEAT t=1 mean_E_hot=55 mean_E_cold=53 delta=2 mean_rho=26.3333,27.6667 netP=0,0,0
+CORRECTED_HEAT t=6 mean_E_hot=52.6667 mean_E_cold=55.3333 delta=-2.66667 mean_rho=25.6667,28.3333 netP=0,0,0
+CORRECTED_HEAT t=12 mean_E_hot=48.6667 mean_E_cold=59.3333 delta=-10.6667 mean_rho=23.6667,30.3333 netP=0,0,0
+CORRECTED_HEAT t=24 mean_E_hot=57.3333 mean_E_cold=50.6667 delta=6.66667 mean_rho=28.3333,25.6667 netP=0,0,0
+CORRECTED_HEAT t=48 mean_E_hot=60 mean_E_cold=48 delta=12 mean_rho=31,23 netP=0,0,0

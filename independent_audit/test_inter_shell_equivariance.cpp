@@ -8,6 +8,7 @@
 #include <random>
 #include <cassert>
 #include <iomanip>
+#include <fstream>
 #include "face_lut.h"
 
 using std::array; using std::vector; using std::map;
@@ -493,63 +494,107 @@ int main() {
     assert(inter_shell_active);
 
     // -------------------------------------------------------------------------
-    // 3. Pure Constant-Density Thermal Slab (rho = 27 everywhere)
+    // 3A. Directional Stress Relaxation (Uniform E=54, rho=27, P=(-1,-1,0))
     // -------------------------------------------------------------------------
-    std::cout << "\n[Test 3] Pure Constant-Density Thermal Slab (rho = 27, Zero Density Contrast)...\n";
-    vector<u8> pure_thermal(V * K, 1); // baseline density = 27 everywhere
-    // Hot half (x < L/2):
-    // Modulate face channels: +x and -x = 2, +y and -y = 0 (Total face mass = 4, triggers head-on face collisions!)
-    // Modulate rest and edge: Rest = 2, Edge (+1,+1,0) = 2, Edge (+1,-1,0) = 0, Edge (-1,+1,0) = 0
-    // Density sum is strictly 27 in every single cell!
+    std::cout << "\n[Test 3A] Directional Stress Relaxation (Uniform E=54, rho=27)...\n";
+    vector<u8> stress_slab(V * K, 1);
     for (int x = 0; x < L; ++x) {
         for (int y = 0; y < L; ++y) {
             for (int z = 0; z < L; ++z) {
                 int c = cell_index(x, y, z, L);
                 int base = c * K;
                 if (x < L / 2) {
-                    // Hot slab: head-on x-axis pair: +x(22)=2, -x(4)=2, all other faces=0 (Code 8 in Face LUT)
-                    // Rest=2, Edge=13, Corner=8 -> Total mass = 4 + 2 + 13 + 8 = 27!
-                    pure_thermal[base + 22] = 2; pure_thermal[base + 4] = 2;
-                    pure_thermal[base + 16] = 0; pure_thermal[base + 10] = 0;
-                    pure_thermal[base + 14] = 0; pure_thermal[base + 12] = 0;
-                    pure_thermal[base + 13] = 2; // rest
-                    pure_thermal[base + 1]  = 2; // edge (+1,+1,0)
+                    stress_slab[base + 22] = 2; stress_slab[base + 4] = 2;
+                    stress_slab[base + 16] = 0; stress_slab[base + 10] = 0;
+                    stress_slab[base + 14] = 0; stress_slab[base + 12] = 0;
+                    stress_slab[base + 13] = 2; stress_slab[base + 1]  = 2;
                 } else {
-                    // Cold slab: face channels at code 360 (0,0,1,1,1,1) (Particle-hole / paired orbit state)
-                    // Total face mass = 4.
-                    pure_thermal[base + 22] = 0; pure_thermal[base + 4] = 0;
-                    pure_thermal[base + 16] = 1; pure_thermal[base + 10] = 1;
-                    pure_thermal[base + 14] = 1; pure_thermal[base + 12] = 1;
-                    pure_thermal[base + 13] = 2; // rest
-                    pure_thermal[base + 1]  = 2; // edge
+                    stress_slab[base + 22] = 0; stress_slab[base + 4] = 0;
+                    stress_slab[base + 16] = 1; stress_slab[base + 10] = 1;
+                    stress_slab[base + 14] = 1; stress_slab[base + 12] = 1;
+                    stress_slab[base + 13] = 2; stress_slab[base + 1]  = 2;
+                }
+            }
+        }
+    }
+    int stress_active_cells = 0;
+    for (int c = 0; c < V; ++c) {
+        array<u8, K> orig{};
+        for (int k = 0; k < K; ++k) orig[k] = stress_slab[c * K + k];
+        apply_full_symmetric_collision(&stress_slab[c * K], edge_gates, d);
+        bool changed = false;
+        for (int k = 0; k < K; ++k) if (stress_slab[c * K + k] != orig[k]) { changed = true; break; }
+        if (changed) stress_active_cells++;
+    }
+    std::cout << "  - Active Stress Slab Cells : " << stress_active_cells << " / " << V 
+              << " (" << (100.0 * stress_active_cells / V) << "%)\n";
+
+    // -------------------------------------------------------------------------
+    // 3B. Genuine Constant-Density Thermal Gradient (rho=27, P=(0,0,0), Delta E0 = +4.0)
+    // -------------------------------------------------------------------------
+    std::cout << "\n[Test 3B] Genuine Constant-Density Thermal Gradient (Delta E = +4.0, P=(0,0,0))...\n";
+    vector<u8> realheat(V * K, 1);
+    for (int x = 0; x < L; ++x) {
+        for (int y = 0; y < L; ++y) {
+            for (int z = 0; z < L; ++z) {
+                int c = cell_index(x, y, z, L);
+                int base = c * K;
+                if (x < L / 2) {
+                    realheat[base + 22] = 0; realheat[base + 4] = 0; // face -2
+                    realheat[base + 1]  = 2; realheat[base + 25] = 2; // edge +2 (Delta E = +2)
+                } else {
+                    realheat[base + 22] = 2; realheat[base + 4] = 2; // face +2
+                    realheat[base + 1]  = 0; realheat[base + 25] = 0; // edge -2 (Delta E = -2)
                 }
             }
         }
     }
 
-    // Verify density is identically 27 in every single cell
-    int min_rho = 999, max_rho = -1;
-    for (int c = 0; c < V; ++c) {
-        int r = 0;
-        for (int k = 0; k < K; ++k) r += pure_thermal[c * K + k];
-        min_rho = std::min(min_rho, r);
-        max_rho = std::max(max_rho, r);
-    }
-    std::cout << "  - Initial Density Range    : min=" << min_rho << ", max=" << max_rho 
-              << " (PURE THERMAL CONTRAST, ZERO DENSITY DISTURBANCE)\n";
-    assert(min_rho == 27 && max_rho == 27);
+    std::ofstream cfile("corrected_thermal_timeseries.csv");
+    cfile << "tick,mean_energy_hot,mean_energy_cold,delta_energy,mean_density_hot,mean_density_cold,net_px,net_py,net_pz\n";
 
-    int thermal_active_cells = 0;
-    for (int c = 0; c < V; ++c) {
-        array<u8, K> orig{};
-        for (int k = 0; k < K; ++k) orig[k] = pure_thermal[c * K + k];
-        apply_full_symmetric_collision(&pure_thermal[c * K], edge_gates, d);
-        bool changed = false;
-        for (int k = 0; k < K; ++k) if (pure_thermal[c * K + k] != orig[k]) { changed = true; break; }
-        if (changed) thermal_active_cells++;
+    for (int t = 0; t <= 48; ++t) {
+        long long eh = 0, ec = 0, nh = 0, nc = 0;
+        long long px = 0, py = 0, pz = 0;
+        for (int x = 0; x < L; ++x) {
+            for (int y = 0; y < L; ++y) {
+                for (int z = 0; z < L; ++z) {
+                    int c = cell_index(x, y, z, L);
+                    int mass = 0, cell_e = 0;
+                    for (int k = 0; k < K; ++k) {
+                        int count = realheat[c * K + k];
+                        mass += count;
+                        cell_e += count * v[k].e;
+                        px += count * v[k].x;
+                        py += count * v[k].y;
+                        pz += count * v[k].z;
+                    }
+                    if (x < L / 2) { eh += cell_e; nh += mass; }
+                    else           { ec += cell_e; nc += mass; }
+                }
+            }
+        }
+        double vol = double(L * L * L / 2);
+        double mean_eh = double(eh) / vol;
+        double mean_ec = double(ec) / vol;
+        double delta_e = double(eh - ec) / vol;
+        double mean_nh = double(nh) / vol;
+        double mean_nc = double(nc) / vol;
+
+        cfile << t << "," << mean_eh << "," << mean_ec << "," << delta_e << ","
+              << mean_nh << "," << mean_nc << "," << px << "," << py << "," << pz << "\n";
+
+        if (t == 0 || t == 1 || t == 6 || t == 12 || t == 24 || t == 48) {
+            std::cout << "  - Tick " << std::setw(2) << t << " : E_hot=" << std::fixed << std::setprecision(4) << mean_eh
+                      << ", E_cold=" << mean_ec << ", Delta E=" << std::setprecision(4) << delta_e 
+                      << ", rho=" << std::setprecision(2) << mean_nh << " vs " << mean_nc
+                      << ", net P=(" << px << "," << py << "," << pz << ")\n";
+        }
+        if (t < 48) {
+            step_lattice_full(realheat, next_state, edge_gates, d, v, L);
+        }
     }
-    std::cout << "  - Active Thermal Slab Cells: " << thermal_active_cells << " / " << V 
-              << " (" << (100.0 * thermal_active_cells / V) << "%)\n";
+    std::cout << "  ===> Corrected Thermal Time-Series Exported to corrected_thermal_timeseries.csv\n";
 
     // -------------------------------------------------------------------------
     // 4. Whole 3D Lattice Dynamic Equivariance F(Rs) == R(Fs)

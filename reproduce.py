@@ -265,26 +265,28 @@ def run():
             # Exact Rotational Equivariance C(Rs) == R(Cs) across all 48 Oh operations
             exact_exe = "test_exact_equivariance.exe" if os.name == "nt" else "./test_exact_equivariance"
             res9 = subprocess.run(["g++", "-O3", "-std=c++17", "-static", "test_exact_equivariance.cpp", "-o", exact_exe])
-            if res9.returncode == 0:
-                res10 = subprocess.run([exact_exe])
-                if res10.returncode == 0:
-                    print("  [PASS] Exact Local Cell Equivariance: 0 / 48,000 mismatches across ALL 48 Oh operations.")
-                else:
-                    print("[FAIL] Exact local cell equivariance failed!")
-                    sys.exit(1)
-                if os.path.exists(exact_exe): os.remove(exact_exe)
+            if res9.returncode != 0:
+                print("[FAIL] Compilation of test_exact_equivariance.cpp failed!")
+                sys.exit(1)
+            res10 = subprocess.run([exact_exe])
+            if res10.returncode != 0:
+                print("[FAIL] Exact local cell equivariance failed!")
+                sys.exit(1)
+            print("  [PASS] Exact Local Cell Equivariance: 0 / 48,000 mismatches across ALL 48 Oh operations.")
+            if os.path.exists(exact_exe): os.remove(exact_exe)
 
             # Full 3D Lattice Equivariance F(Rs) == R(Fs)
             lat_exe = "test_lattice_equivariance.exe" if os.name == "nt" else "./test_lattice_equivariance"
             res11 = subprocess.run(["g++", "-O3", "-std=c++17", "-static", "test_lattice_equivariance.cpp", "-o", lat_exe])
-            if res11.returncode == 0:
-                res12 = subprocess.run([lat_exe])
-                if res12.returncode == 0:
-                    print("  [PASS] Full 3D Lattice Dynamic Equivariance: 0 mismatches across all 48 Oh operations on 12^3.")
-                else:
-                    print("[FAIL] Full 3D lattice equivariance failed!")
-                    sys.exit(1)
-                if os.path.exists(lat_exe): os.remove(lat_exe)
+            if res11.returncode != 0:
+                print("[FAIL] Compilation of test_lattice_equivariance.cpp failed!")
+                sys.exit(1)
+            res12 = subprocess.run([lat_exe])
+            if res12.returncode != 0:
+                print("[FAIL] Full 3D lattice equivariance failed!")
+                sys.exit(1)
+            print("  [PASS] Full 3D Lattice Dynamic Equivariance: 0 mismatches across all 48 Oh operations on 12^3.")
+            if os.path.exists(lat_exe): os.remove(lat_exe)
 
             if os.path.exists(eq_exe): os.remove(eq_exe)
             if os.path.exists(probe_exe): os.remove(probe_exe)

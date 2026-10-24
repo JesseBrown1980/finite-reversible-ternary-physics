@@ -227,6 +227,7 @@ int main() {
         std::cout << "  - Tested Rotations : " << test_idx << " proper cubic rotations\n";
         std::cout << "  - Total Mismatches : " << total_mismatches << " / " << (total_trits * test_idx) << "\n";
         std::cout << "  - Equivariance     : " << (total_mismatches == 0 ? "PASS (0 mismatches, 100% Exact F(Rs) == R(Fs))" : "FAIL") << "\n";
+        if (total_mismatches != 0) return 1;
     }
 
     return 0;

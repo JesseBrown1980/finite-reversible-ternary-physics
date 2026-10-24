@@ -169,5 +169,5 @@ int main() {
     if (total_mismatches == 0) {
         std::cout << ">>> 100% EXACT ROTATIONAL EQUIVARIANCE CONFIRMED: C(Rs) == R(Cs) across ALL 48 Oh operations! <<<\n";
     }
-    return 0;
+    return (total_mismatches == 0) ? 0 : 1;
 }

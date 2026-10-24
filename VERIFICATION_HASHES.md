@@ -29,3 +29,10 @@
 | `host8_mode_a_pilot1000.ledger` | `2966238b8e9585f9d3289c39e610ae573bbad98a76b93e34dfa012477dc49279` |
 | `host8_mode_a_pilot100_manifest.json` | `821dc55aba1a34985eecdd508048eaf020ca9a957524912ab931c3293dd3571b` |
 | `host8_mode_a_pilot1000_manifest.json` | `4de43a158f5b586053408c1f04dc94a6e5cc9c4b50bdf64773e619c8e7021eb9` |
+| `host8_mode_a_pilot100.hbp` | `eeadfa7a207196b30d2c7e54be8ef76e4adbd6c30a59d371e1361dadff7e41d9` |
+| `host8_mode_a_pilot100.hbi` | `b977b2e455667a833b003a83e6e091c35340df2b13be4729240f5406135cad2d` |
+| `host8_mode_a_pilot1000.hbp` | `bf894725e916c28b15e72e18b0a8785e28ccffb86f2e97e2e66459e9ab140e97` |
+| `host8_mode_a_pilot1000.hbi` | `61b4d26c494bf345d76b23a85e3438133335cc7f40debffed2d6079e99f50622` |
+| `host8_native_pilot.hbp` | `8ff06802576671142260f780d4b52ac66898254ffea4a143587a0ebbfe3d8934` |
+| `host8_native_pilot.hbi` | `c4b9fda1d94934bb4b116473ab2d8cbdd4a2070e50efa36c196a5b3322b3102e` |
+| `host8_native_pilot_manifest.json` | `59d692db77e898e8e58f2d96dc5a5d09b39117c2b8576e053af2e0fb9103c6d0` |

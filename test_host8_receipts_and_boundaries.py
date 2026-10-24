@@ -309,6 +309,8 @@ class TestModeABatchExecution:
 
             ledger_file = os.path.join(tmpdir, "test_mode_a.ledger")
             manifest_file = os.path.join(tmpdir, "test_manifest.json")
+            hbp_file = os.path.join(tmpdir, "test_mode_a.hbp")
+            hbi_file = os.path.join(tmpdir, "test_mode_a.hbi")
 
             # Run 2 windows on sector 1
             res1 = subprocess.run([
@@ -317,6 +319,8 @@ class TestModeABatchExecution:
                 "--start-sector", "1",
                 "--end-sector", "1",
                 "--windows", "2",
+                "--hbp", hbp_file,
+                "--hbi", hbi_file,
                 "--checkpoint-ledger", ledger_file,
                 "--host8-manifest", manifest_file,
             ], capture_output=True, text=True)
@@ -335,6 +339,8 @@ class TestModeABatchExecution:
                 "--end-sector", "1",
                 "--windows", "3",
                 "--resume",
+                "--hbp", hbp_file,
+                "--hbi", hbi_file,
                 "--checkpoint-ledger", ledger_file,
                 "--host8-manifest", manifest_file,
             ], capture_output=True, text=True)
@@ -346,3 +352,211 @@ class TestModeABatchExecution:
             with open(ledger_file, "r") as f:
                 lines = [l.strip() for l in f if l.strip()]
             assert len(lines) == 4, f"Expected header + 3 rows, got {len(lines)}"
+
+
+class TestNativeHbpFabricAndIntegrity:
+    """Validates the native HBI/HBP/SHA/SH/HASH fabric and fail-closed integrity checks."""
+
+    def test_pilot100_verification(self):
+        exe = "./asolaria_equilibrium_suite.exe" if os.name == "nt" else "./asolaria_equilibrium_suite"
+        if not os.path.exists(exe):
+            pytest.skip("Physics engine executable not built.")
+        if not (os.path.exists("host8_mode_a_pilot100.hbp") and os.path.exists("host8_mode_a_pilot100.hbi")):
+            pytest.skip("Pilot 100 HBP/HBI not present.")
+
+        res = subprocess.run([
+            exe, "--verify-hbp",
+            "--hbp", "host8_mode_a_pilot100.hbp",
+            "--hbi", "host8_mode_a_pilot100.hbi"
+        ], capture_output=True, text=True)
+        assert res.returncode == 0, f"Pilot 100 HBP verification failed: {res.stderr}\n{res.stdout}"
+        assert "Windows Verified: 100" in res.stdout
+        assert "100% UNBROKEN CRYPTOGRAPHIC INTEGRITY" in res.stdout
+
+    def test_pilot1000_verification(self):
+        exe = "./asolaria_equilibrium_suite.exe" if os.name == "nt" else "./asolaria_equilibrium_suite"
+        if not os.path.exists(exe):
+            pytest.skip("Physics engine executable not built.")
+        if not (os.path.exists("host8_mode_a_pilot1000.hbp") and os.path.exists("host8_mode_a_pilot1000.hbi")):
+            pytest.skip("Pilot 1000 HBP/HBI not present.")
+
+        res = subprocess.run([
+            exe, "--verify-hbp",
+            "--hbp", "host8_mode_a_pilot1000.hbp",
+            "--hbi", "host8_mode_a_pilot1000.hbi"
+        ], capture_output=True, text=True)
+        assert res.returncode == 0, f"Pilot 1000 HBP verification failed: {res.stderr}\n{res.stdout}"
+        assert "Windows Verified: 1000" in res.stdout
+        assert "100% UNBROKEN CRYPTOGRAPHIC INTEGRITY" in res.stdout
+
+    def test_negative_corrupted_hbp_byte(self):
+        exe = "./asolaria_equilibrium_suite.exe" if os.name == "nt" else "./asolaria_equilibrium_suite"
+        if not os.path.exists(exe) or not os.path.exists("host8_mode_a_pilot100.hbp"):
+            pytest.skip("Prerequisites not present.")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad_hbp = os.path.join(tmpdir, "corrupted.hbp")
+            bad_hbi = os.path.join(tmpdir, "corrupted.hbi")
+
+            with open("host8_mode_a_pilot100.hbp", "rb") as f:
+                hbp_data = bytearray(f.read())
+            # Corrupt a byte in the middle of a window receipt
+            hbp_data[500] = ord(b'X') if hbp_data[500] != ord(b'X') else ord(b'Y')
+
+            with open(bad_hbp, "wb") as f:
+                f.write(hbp_data)
+            with open("host8_mode_a_pilot100.hbi", "rb") as f:
+                with open(bad_hbi, "wb") as out_f:
+                    out_f.write(f.read())
+
+            res = subprocess.run([
+                exe, "--verify-hbp",
+                "--hbp", bad_hbp,
+                "--hbi", bad_hbi
+            ], capture_output=True, text=True)
+            assert res.returncode != 0, "Corrupted HBP byte must fail verification!"
+            assert "HBP digest mismatch" in (res.stdout + res.stderr)
+
+    def test_negative_altered_hbi_offset(self):
+        exe = "./asolaria_equilibrium_suite.exe" if os.name == "nt" else "./asolaria_equilibrium_suite"
+        if not os.path.exists(exe) or not os.path.exists("host8_mode_a_pilot100.hbp"):
+            pytest.skip("Prerequisites not present.")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad_hbp = os.path.join(tmpdir, "bad_offset.hbp")
+            bad_hbi = os.path.join(tmpdir, "bad_offset.hbi")
+
+            with open("host8_mode_a_pilot100.hbp", "rb") as f:
+                with open(bad_hbp, "wb") as out_f:
+                    out_f.write(f.read())
+
+            with open("host8_mode_a_pilot100.hbi", "r") as f:
+                lines = f.readlines()
+            # Tamper with the offset in the second line
+            lines[1] = lines[1].replace("offset=", "offset=999999")
+
+            with open(bad_hbi, "w") as f:
+                f.writelines(lines)
+
+            res = subprocess.run([
+                exe, "--verify-hbp",
+                "--hbp", bad_hbp,
+                "--hbi", bad_hbi
+            ], capture_output=True, text=True)
+            assert res.returncode != 0, "Altered HBI offset must fail verification!"
+
+    def test_negative_tampered_hbi_sha(self):
+        exe = "./asolaria_equilibrium_suite.exe" if os.name == "nt" else "./asolaria_equilibrium_suite"
+        if not os.path.exists(exe) or not os.path.exists("host8_mode_a_pilot100.hbp"):
+            pytest.skip("Prerequisites not present.")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad_hbp = os.path.join(tmpdir, "bad_sha.hbp")
+            bad_hbi = os.path.join(tmpdir, "bad_sha.hbi")
+
+            with open("host8_mode_a_pilot100.hbp", "rb") as f:
+                with open(bad_hbp, "wb") as out_f:
+                    out_f.write(f.read())
+
+            with open("host8_mode_a_pilot100.hbi", "r") as f:
+                lines = f.readlines()
+            # Corrupt hbp_sha256 in second entry
+            lines[1] = lines[1].replace("hbp_sha256=", "hbp_sha256=0000000000000000000000000000000000000000000000000000000000000000")
+
+            with open(bad_hbi, "w") as f:
+                f.writelines(lines)
+
+            res = subprocess.run([
+                exe, "--verify-hbp",
+                "--hbp", bad_hbp,
+                "--hbi", bad_hbi
+            ], capture_output=True, text=True)
+            assert res.returncode != 0, "Tampered HBI SHA-256 must fail verification!"
+
+    def test_negative_broken_hash_chain(self):
+        exe = "./asolaria_equilibrium_suite.exe" if os.name == "nt" else "./asolaria_equilibrium_suite"
+        if not os.path.exists(exe) or not os.path.exists("host8_mode_a_pilot100.hbp"):
+            pytest.skip("Prerequisites not present.")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad_hbp = os.path.join(tmpdir, "broken_chain.hbp")
+            bad_hbi = os.path.join(tmpdir, "broken_chain.hbi")
+
+            with open("host8_mode_a_pilot100.hbp", "rb") as f:
+                with open(bad_hbp, "wb") as out_f:
+                    out_f.write(f.read())
+
+            with open("host8_mode_a_pilot100.hbi", "r") as f:
+                hbi_lines = f.readlines()
+            # In line 2, tamper with hash field while keeping hbp_sha256 intact
+            parts = hbi_lines[2].split("|")
+            for i, p in enumerate(parts):
+                if p.startswith("hash="):
+                    parts[i] = "hash=deadbeef00000000000000000000000000000000000000000000000000000000"
+            hbi_lines[2] = "|".join(parts)
+
+            with open(bad_hbi, "w") as f:
+                f.writelines(hbi_lines)
+
+            res = subprocess.run([
+                exe, "--verify-hbp",
+                "--hbp", bad_hbp,
+                "--hbi", bad_hbi
+            ], capture_output=True, text=True)
+            assert res.returncode != 0, "Broken hash chain must fail verification!"
+            assert "HASH chain broken" in (res.stdout + res.stderr)
+
+    def test_negative_corrupted_sh_handle(self):
+        exe = "./asolaria_equilibrium_suite.exe" if os.name == "nt" else "./asolaria_equilibrium_suite"
+        if not os.path.exists(exe) or not os.path.exists("host8_mode_a_pilot100.hbp"):
+            pytest.skip("Prerequisites not present.")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad_hbp = os.path.join(tmpdir, "bad_sh.hbp")
+            bad_hbi = os.path.join(tmpdir, "bad_sh.hbi")
+
+            with open("host8_mode_a_pilot100.hbp", "r") as f:
+                hbp_lines = f.readlines()
+            # Corrupt SH handle in line 2
+            hbp_lines[2] = hbp_lines[2].replace("|sh=", "|sh=0123456789abcdef_bad|old_sh=")
+
+            with open("host8_mode_a_pilot100.hbi", "r") as f:
+                hbi_lines = f.readlines()
+
+            with open(bad_hbp, "w") as f:
+                f.writelines(hbp_lines)
+            with open(bad_hbi, "w") as f:
+                f.writelines(hbi_lines)
+
+            res = subprocess.run([
+                exe, "--verify-hbp",
+                "--hbp", bad_hbp,
+                "--hbi", bad_hbi
+            ], capture_output=True, text=True)
+            assert res.returncode != 0, "Corrupted SH handle must fail verification!"
+
+    def test_negative_truncated_commit(self):
+        exe = "./asolaria_equilibrium_suite.exe" if os.name == "nt" else "./asolaria_equilibrium_suite"
+        if not os.path.exists(exe) or not os.path.exists("host8_mode_a_pilot100.hbp"):
+            pytest.skip("Prerequisites not present.")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad_hbp = os.path.join(tmpdir, "truncated.hbp")
+            bad_hbi = os.path.join(tmpdir, "truncated.hbi")
+
+            with open("host8_mode_a_pilot100.hbp", "rb") as f:
+                data = f.read()
+            # Truncate last 25 bytes (partial line without newline)
+            with open(bad_hbp, "wb") as f:
+                f.write(data[:-25])
+
+            with open("host8_mode_a_pilot100.hbi", "rb") as f:
+                with open(bad_hbi, "wb") as f_out:
+                    f_out.write(f.read())
+
+            res = subprocess.run([
+                exe, "--verify-hbp",
+                "--hbp", bad_hbp,
+                "--hbi", bad_hbi
+            ], capture_output=True, text=True)
+            assert res.returncode != 0, "Truncated HBP file must fail verification!"

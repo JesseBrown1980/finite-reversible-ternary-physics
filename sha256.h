@@ -61,6 +61,10 @@ public:
         return ctx.finalize();
     }
 
+    static std::string hash_string(const std::string& str) {
+        return hash_bytes(reinterpret_cast<const uint8_t*>(str.data()), str.size());
+    }
+
 private:
     static inline uint32_t rotr(uint32_t x, uint32_t n) {
         return (x >> n) | (x << (32 - n));

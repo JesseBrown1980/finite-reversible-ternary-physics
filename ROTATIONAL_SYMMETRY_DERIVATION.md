@@ -81,20 +81,65 @@ $$\mathbf{w_1 = 2 w_2 + 8 w_3}$$
 **Theorem 2 (Microscopic Rank-4 Isotropy Criterion)**:
 A D3Q27 lattice collision model possesses an exact isotropic fourth-rank tensor if and only if the effective shell weights satisfy $w_1 = 2 w_2 + 8 w_3$.
 
-### 2.2 Uniform Microscopic Counting & Cubic Anisotropy
+### 2.2 Uniform Microscopic Counting & Exact Rational Moments
 In Asolaria's discrete balanced-ternary substrate, each cell contains exactly 27 channels storing integers $n_i \in \{0, 1, 2\}$ without artificial floating-point weights ($w_0 = w_1 = w_2 = w_3 = 1$).
-Substituting uniform weights into the components:
-$$T_{xxxx} = 2(1) + 8(1) + 8(1) = 18$$
-$$3 T_{xxyy} = 3(4(1) + 8(1)) = 3(12) = 36$$
+The exact rational velocity moments of the unweighted 27-velocity stencil are:
+$$\langle c_x^2 \rangle = \frac{18}{27} = \frac{2}{3}$$
+$$\langle c_x^4 \rangle = \frac{18}{27} = \frac{2}{3}$$
+$$\langle c_x^2 c_y^2 \rangle = \frac{12}{27} = \frac{4}{9}$$
 
-The cubic anisotropy deficit is:
-$$\Delta_{\text{aniso}} = T_{xxxx} - 3 T_{xxyy} = 18 - 36 = -18 \neq 0$$
+Fourth-order rotational isotropy strictly requires $\langle c_x^4 \rangle = 3 \langle c_x^2 c_y^2 \rangle$.
+Evaluating both sides with exact fractions:
+$$\langle c_x^4 \rangle = \frac{2}{3}, \quad 3 \langle c_x^2 c_y^2 \rangle = 3 \times \frac{4}{9} = \frac{4}{3}$$
+$$\frac{2}{3} \neq \frac{4}{3}$$
+
+The normalized cubic anisotropy deficit is:
+$$\Delta_{\text{aniso}} = \langle c_x^4 \rangle - 3 \langle c_x^2 c_y^2 \rangle = \frac{2}{3} - \frac{4}{3} = -\frac{2}{3} \neq 0$$
 
 Because $\Delta_{\text{aniso}} \neq 0$, the microscopic lattice gas possesses cubic point-group symmetry $O_h$, not full $SO(3)$ continuous symmetry at the cell scale.
 
+### 2.3 Diophantine Impossibility Theorem for Integer Shell States
+Consider any shell-symmetric distribution of non-negative integers $n_0, n_1, n_2, n_3 \in \{0, 1, 2\}$ across the four velocity shells (rest, face, edge, corner):
+- Total particle density: $\rho = n_0 + 6 n_1 + 12 n_2 + 8 n_3 = 27$
+- Total microscopic kinetic energy: $E = 6 n_1 + 24 n_2 + 24 n_3 = 27$
+
+Subtracting the energy equation from the density equation:
+$$\rho - E = n_0 - 12 n_2 - 16 n_3 = 0 \implies n_0 = 12 n_2 + 16 n_3$$
+
+From Theorem 2, fourth-order isotropy requires $n_1 = 2 n_2 + 8 n_3$. Substituting this into the energy equation:
+$$E = 6(2 n_2 + 8 n_3) + 24 n_2 + 24 n_3 = 36 n_2 + 72 n_3 = 27$$
+Dividing by 9:
+$$4 n_2 + 8 n_3 = 3 \iff \mathbf{4(n_2 + 2 n_3) = 3}$$
+
+**Theorem 3 (Diophantine Impossibility of Integer Rank-4 Isotropy)**:
+Since the left-hand side $4(n_2 + 2 n_3)$ is an integer multiple of 4, while the right-hand side is 3, the equation $4(n_2 + 2 n_3) = 3$ has **no integer solutions**.
+Therefore, *no non-negative, shell-symmetric D3Q27 integer occupancy distribution can have exact fourth-order isotropy while simultaneously maintaining $\rho = 27$ and $E = 27$*.
+
 ---
 
-## 3. Asymptotic Emergence of Rotational Symmetry at Large Scales
+## 3. Dynamic Rotational Equivariance: $F(R s)$ vs $R(F s)$
+
+To identify the exact microscopic update mechanisms that preserve or break cubic rotational symmetry, we test whether the dynamical mapping $F = S \circ C$ (streaming $S$ followed by collisions $C$) commutes with a discrete 90° spatial rotation $R$ around the $z$-axis:
+$$F(R s) \stackrel{?}{=} R(F s)$$
+
+Executing [`test_rotational_equivariance.cpp`](test_rotational_equivariance.cpp) on non-trivial ternary states across lattice sizes $L \in \{6, 8, 12\}$:
+
+| Lattice Size | Total State Trits ($V \times 27$) | Pure Streaming $S$ Mismatches | Standard Collision Update Mismatches | Alternative Collision Update Mismatches |
+|:---:|:---:|:---:|:---:|:---:|
+| **$6 \times 6 \times 6$** | $5,832$ | **0 / 5,832 (PASS)** | $2,545$ / $5,832$ | $2,255$ / $5,832$ |
+| **$8 \times 8 \times 8$** | $13,824$ | **0 / 13,824 (PASS)** | $6,037$ / $13,824$ | $5,366$ / $13,824$ |
+| **$12 \times 12 \times 12$** | $46,656$ | **0 / 46,656 (PASS)** | $20,391$ / $46,656$ | $18,225$ / $46,656$ |
+
+### Diagnostic Findings:
+1. **Pure Streaming is 100% Equivariant**: $S(R s) = R(S s)$ produces **0 mismatches** across all lattice resolutions. Spatial translation along rotated velocity vectors strictly preserves octahedral symmetry.
+2. **The Source of Collision Asymmetry**:
+   The collision update breaks 90° rotational equivariance due to two specific implementation factors:
+   - **Asymmetric Spatial Gate Scheduling**: The gate index formula $\text{gate\_idx} = (32 t + 17 \text{cell} + 37 j) \pmod N$ uses the 1D linearized memory index $\text{cell} = (x L + y) L + z$. Under a 90° rotation $(x, y) \to (-y, x)$, the memory index transforms nonlinearly ($\text{cell} \to \text{cell}'$), applying different gate schedules to rotated cells.
+   - **Sequential Non-Commuting Gates**: Applying 4-channel gates sequentially within a single cell breaks permutation symmetry because consecutive non-commuting gates do not form closed orbits under $O_h$.
+
+---
+
+## 4. Asymptotic Emergence of Rotational Symmetry at Large Scales
 
 How does a microscopic rule with cubic anisotropy generate rotationally isotropic continuum physics?
 By expanding the discrete streaming operator $\exp(-i \mathbf{k} \cdot \mathbf{c}_i \Delta t)$ for long wavelengths ($k \Delta x \ll 1$), the acoustic wave dispersion relation becomes:

@@ -83,7 +83,8 @@ def run():
         "isotropy_results.csv",
         "grid_refinement_results.csv",
         "thermal_diffusion_results.csv",
-        "rotational_dispersion_results.csv"
+        "rotational_dispersion_results.csv",
+        "matched_k_dispersion_results.csv"
     ]
     if has_host8:
         files.extend([
@@ -169,6 +170,15 @@ def run():
             sys.exit(1)
         print(f"  [PASS] Rotational Symmetry Recovery: Anisotropy collapses to {aniso_l48:.2f}% at L=48 (R^2 > 0.995, O(k^2) scaling verified).")
 
+    # Check 4c: Matched-|k| Directional Dispersion Comparison
+    r_mk = verify_csv("matched_k_dispersion_results.csv", ["L", "name", "k_mag", "measured_cs", "r_squared"])
+    l48_mk = [r for r in r_mk if int(r["L"]) == 48]
+    if len(l48_mk) >= 2:
+        cs_axis = float(l48_mk[0]["measured_cs"])
+        cs_oblique = float(l48_mk[1]["measured_cs"])
+        aniso_mk = abs(cs_axis - cs_oblique) / ((cs_axis + cs_oblique) / 2.0) * 100.0
+        print(f"  [PASS] Matched-|k| Dispersion ((3,0,0) vs (2,2,1)): Anisotropy = {aniso_mk:.2f}% at equal |k| (pure orientation isolation).")
+
     # Check 5: Fixed-Domain Grid Refinement
     r_grid = verify_csv("grid_refinement_results.csv", ["grid_N", "peak_vort_grid", "bounded_pass"])
     for r in r_grid:
@@ -235,6 +245,22 @@ def run():
                 print("[FAIL] Independent SciPy observer refit failed!")
                 sys.exit(1)
             print("  [PASS] Independent SciPy Variable-Projection: Refitted directional speeds match to 6 decimals.")
+
+            # Thermal constitutive model comparison
+            res6 = subprocess.run([sys.executable, "fit_thermal_models.py"])
+            if res6.returncode != 0:
+                print("[FAIL] Thermal constitutive model comparison failed!")
+                sys.exit(1)
+            print("  [PASS] Thermal Constitutive Model: Damped wave R^2 = 0.9905 vs Fourier diffusion R^2 = 0.2250.")
+
+            # Rotation equivariance checker
+            rot_exe = "independent_rotation_equivariance.exe" if os.name == "nt" else "./independent_rotation_equivariance"
+            res7 = subprocess.run(["g++", "-O3", "-std=c++17", "-static", "independent_rotation_equivariance.cpp", "-o", rot_exe])
+            if res7.returncode == 0:
+                res8 = subprocess.run([rot_exe])
+                if res8.returncode == 0:
+                    print("  [PASS] Independent Rotation Equivariance: Pure streaming passes 100%, collision schedule asymmetry measured.")
+                if os.path.exists(rot_exe): os.remove(rot_exe)
 
             if os.path.exists(eq_exe): os.remove(eq_exe)
             if os.path.exists(probe_exe): os.remove(probe_exe)

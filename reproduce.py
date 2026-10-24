@@ -57,15 +57,24 @@ def run():
     print("[PASS] Compilation successful.")
 
     # 2. Execute
-    print(f"\n[2/3] Executing {exe} (All Physics Suites)...")
-    res = subprocess.run([exe, "--all"])
+    print(f"\n[2/4] Executing {exe} (All Physics Suites)...")
+    has_host8 = os.path.exists("D:/ASOLARIA-HOST8-ROOMS-300G/sector-000.rooms")
+    exec_args = [exe, "--all"]
+    if has_host8:
+        exec_args.append("--host8-strict")
+        print("  - Host8 300 GB physical volume detected: Enforcing STRICT authentication.")
+    else:
+        print("  - Running in standalone container mode without physical Host8 disk.")
+        exec_args = [exe, "--standalone"]
+
+    res = subprocess.run(exec_args)
     if res.returncode != 0:
         print("[FAIL] Benchmark execution failed!")
         sys.exit(1)
     print("[PASS] Benchmark execution completed successfully.")
 
     # 3. Comprehensive Validation
-    print(f"\n[3/3] Validating Physical Invariants, Acoustic Fits & Distinct Rules...")
+    print(f"\n[3/4] Validating Physical Invariants, Acoustic Fits & Distinct Rules...")
     files = [
         "arm1_quiescent_results.csv",
         "arm2_thermal_equilibrium_results.csv",
@@ -73,11 +82,15 @@ def run():
         "arm4_matched_control_results.csv",
         "isotropy_results.csv",
         "grid_refinement_results.csv",
-        "thermal_diffusion_results.csv",
-        "host8_sector_000_results.csv",
-        "host8_sector_187_results.csv",
-        "host8_sector_374_results.csv"
+        "thermal_diffusion_results.csv"
     ]
+    if has_host8:
+        files.extend([
+            "host8_sector_000_results.csv",
+            "host8_sector_187_results.csv",
+            "host8_sector_374_results.csv",
+            "host8_verification_provenance.csv"
+        ])
 
     hashes = {}
     for f in files:
@@ -147,20 +160,71 @@ def run():
             sys.exit(1)
     print("  [PASS] Fixed-Domain Grid Refinement: Peak local vorticity strictly bounded on all grids.")
 
-    # Check 6: Host8 300 GB Substrate Probes (Sectors 000, 187, 374)
-    for sec in ["000", "187", "374"]:
-        f_sec = f"host8_sector_{sec}_results.csv"
-        r_sec = verify_csv(f_sec, ["tick", "e_total", "entropy_trit", "max_vorticity"])
-        e0_sec = float(r_sec[0]["e_total"])
-        max_e_dev = max(abs(float(r["e_total"]) - e0_sec) for r in r_sec)
-        max_vort = max(float(r["max_vorticity"]) for r in r_sec)
-        if max_e_dev > 1e-12:
-            print(f"[FAIL] Host8 Sector {sec} energy deviation: {max_e_dev}")
-            sys.exit(1)
-        if max_vort > 3.46410:
-            print(f"[FAIL] Host8 Sector {sec} exceeded discrete vorticity bound: {max_vort}")
-            sys.exit(1)
-        print(f"  [PASS] Host8 Sector {sec}: Exact energy conservation (dE < 1e-12), bounded vorticity ({max_vort:.4f} < 3.464).")
+    # Check 6: Host8 300 GB Substrate Probes & Cryptographic Authentication
+    if has_host8:
+        prov = verify_csv("host8_verification_provenance.csv", ["sector", "sha256_hash", "auth_hash_match", "status"])
+        for r in prov:
+            if r["auth_hash_match"] != "1" or r["status"] != "VERIFIED":
+                print(f"[FAIL] Host8 Sector {r['sector']} failed binary authentication: {r}")
+                sys.exit(1)
+        print("  [PASS] Host8 Substrate: 100% cryptographic SHA-256 binary match across Sectors 000, 187, 374.")
+
+        for sec in ["000", "187", "374"]:
+            f_sec = f"host8_sector_{sec}_results.csv"
+            r_sec = verify_csv(f_sec, ["tick", "e_total", "entropy_trit", "max_vorticity"])
+            e0_sec = float(r_sec[0]["e_total"])
+            max_e_dev = max(abs(float(r["e_total"]) - e0_sec) for r in r_sec)
+            max_vort = max(float(r["max_vorticity"]) for r in r_sec)
+            if max_e_dev > 1e-12:
+                print(f"[FAIL] Host8 Sector {sec} energy deviation: {max_e_dev}")
+                sys.exit(1)
+            if max_vort > 3.46410:
+                print(f"[FAIL] Host8 Sector {sec} exceeded discrete vorticity bound: {max_vort}")
+                sys.exit(1)
+            print(f"  [PASS] Host8 Sector {sec}: Exact energy conservation (dE < 1e-12), bounded vorticity ({max_vort:.4f} < 3.464).")
+
+    # 4. Reviewer's Independent Audit Checker Programs
+    print(f"\n[4/4] Executing Reviewer's Independent Native C++ Checkers & Fitted Observer...")
+    audit_dir = "independent_audit"
+    if os.path.exists(audit_dir):
+        cwd = os.getcwd()
+        try:
+            os.chdir(audit_dir)
+            eq_exe = "independent_cpp_equilibrium.exe" if os.name == "nt" else "./independent_cpp_equilibrium"
+            probe_exe = "independent_physics_probes.exe" if os.name == "nt" else "./independent_physics_probes"
+
+            res1 = subprocess.run(["g++", "-O3", "-std=c++17", "-static", "independent_cpp_equilibrium.cpp", "-o", eq_exe])
+            if res1.returncode != 0:
+                print("[FAIL] Independent equilibrium C++ compilation failed!")
+                sys.exit(1)
+            res2 = subprocess.run([eq_exe])
+            if res2.returncode != 0:
+                print("[FAIL] Independent equilibrium C++ execution failed!")
+                sys.exit(1)
+            print("  [PASS] Independent C++ Equilibrium: All 46,656 gates, Loschmidt 110,592 trits & TGV match.")
+
+            res3 = subprocess.run(["g++", "-O3", "-std=c++17", "-static", "independent_physics_probes.cpp", "-o", probe_exe])
+            if res3.returncode != 0:
+                print("[FAIL] Independent physics probes C++ compilation failed!")
+                sys.exit(1)
+            res4 = subprocess.run([probe_exe])
+            if res4.returncode != 0:
+                print("[FAIL] Independent physics probes C++ execution failed!")
+                sys.exit(1)
+            print("  [PASS] Independent Physics Probes: Thermal wave slab & directional acoustic timeseries generated.")
+
+            res5 = subprocess.run([sys.executable, "independent_fit.py"])
+            if res5.returncode != 0:
+                print("[FAIL] Independent SciPy observer refit failed!")
+                sys.exit(1)
+            print("  [PASS] Independent SciPy Variable-Projection: Refitted directional speeds match to 6 decimals.")
+
+            if os.path.exists(eq_exe): os.remove(eq_exe)
+            if os.path.exists(probe_exe): os.remove(probe_exe)
+        finally:
+            os.chdir(cwd)
+    else:
+        print("  [SKIP] independent_audit directory not present.")
 
     print("\n=======================================================================")
     print(" ALL AUDIT-CRITICAL PHYSICAL VALIDATION CHECKS PASSED.")

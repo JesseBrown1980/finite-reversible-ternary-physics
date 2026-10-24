@@ -12,3 +12,4 @@
 | `host8_sector_000_results.csv` | `fa1a4f1fe7f819dfc63b6ef3c14f46d95a4838800f6f80db947cf36583e53b0a` |
 | `host8_sector_187_results.csv` | `f3aee636a0bd8bd84797176e7c20fae114d1993f497f07cb4845ff2867d6d12c` |
 | `host8_sector_374_results.csv` | `c23b0ec294365c85192e6bddc5025ffff16631285d2902e30511df3f789c2fe6` |
+| `host8_verification_provenance.csv` | `a3a7956c0c754ab0604fc0467678661c9c33960605f0287c844127636d0e07de` |

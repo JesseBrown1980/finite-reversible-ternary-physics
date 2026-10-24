@@ -1,0 +1,6 @@
+GATES standard=288 alternative=288 distinct=288 exact_invariant_checks=46656 pass=1
+GROUND_STATE after_8_ticks_unchanged=1
+REVERSIBILITY 110592-trit 16_steps restorable=1
+TG_INITIAL E_total=27 E_kin=0.14266118 Enstrophy=0.00133998882 max_vort=0.148148148 density=27..27
+TG_FINAL E_total=27 E_kin=0.689439614 Enstrophy=0.0264725044 max_vort=0.638106752
+PASS independent native C++ tests (not full original GitHub suite)

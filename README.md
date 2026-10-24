@@ -16,6 +16,8 @@
 > **Independent Verification & Peer Review Audit Responses**:
 > - [INDEPENDENT_REPRODUCTION_VERIFICATION.md](INDEPENDENT_REPRODUCTION_VERIFICATION.md): Independent GCC 14.2 C++ execution results confirming 288/288 distinct gates, 46,656 passed invariant checks, 100% Loschmidt recurrence, and 7-decimal place agreement across all published observables.
 > - [PEER_REVIEW_RESPONSE_6132353.md](PEER_REVIEW_RESPONSE_6132353.md): Point-by-point technical resolution of audit queries (QR-fitted acoustic isotropy, distinct 288-gate alternative rule, hyperbolic thermal transport, and coherent vortex mode decomposition).
+> - [`independent_audit/`](independent_audit/): Directory containing the independent C++ checker executables (`independent_cpp_equilibrium.cpp`, `independent_physics_probes.cpp`) and the SciPy variable-projection observer script (`independent_fit.py`).
+> - [`host8_verification_provenance.csv`](host8_verification_provenance.csv): Strict cryptographic SHA-256 provenance hashes for the 110,592-byte physical binary room blocks loaded from the 300 GB Host8 engine.
 
 ---
 
@@ -79,24 +81,33 @@ Using live QR variable-projection nonlinear least-squares fits (`acoustic_damped
 - **Mean Sound Speed**: $0.88868 \, [\Delta x/\Delta t]$ (Theory: $\sqrt{2/3} \approx 0.816497$).
 - **Directional Anisotropy**: $11.79\%$ across all 4 spatial axes.
 
-### 3.3 Fixed-Domain Grid Refinement ($L_{\text{phys}} = 1.0$)
+### 3.3 Fixed-Domain Grid Refinement ($L_{\text{phys}} = 1.0$) & Regularity Claim Boundaries
 Evaluating a fixed physical domain with decreasing spatial step $\Delta x = 1/N$:
-- $N = 16^3$ ($\Delta x = 0.0625$): $\|\mathbf{\omega}_{\text{grid}}\|_{L^\infty} = 0.71675 < 3.46410$ | Physical: $11.47$
-- $N = 24^3$ ($\Delta x = 0.0417$): $\|\mathbf{\omega}_{\text{grid}}\|_{L^\infty} = 0.77437 < 3.46410$ | Physical: $18.58$
-- $N = 32^3$ ($\Delta x = 0.0312$): $\|\mathbf{\omega}_{\text{grid}}\|_{L^\infty} = 0.73918 < 3.46410$ | Physical: $23.65$
-On any fixed discrete grid, local vorticity is unconditionally bounded by geometry ($\|\mathbf{\omega}_{\text{grid}}\| \le 2\sqrt{3}$).
+- $N = 16^3$ ($\Delta x = 0.0625$): $\|\mathbf{\omega}_{\text{grid}}\|_{L^\infty} = 0.71675 < 3.46410$ | Physical: $11.468$
+- $N = 24^3$ ($\Delta x = 0.0417$): $\|\mathbf{\omega}_{\text{grid}}\|_{L^\infty} = 0.77437 < 3.46410$ | Physical: $18.585$
+- $N = 32^3$ ($\Delta x = 0.0312$): $\|\mathbf{\omega}_{\text{grid}}\|_{L^\infty} = 0.73918 < 3.46410$ | Physical: $23.654$
+
+**Regularity Claim Distinction**:
+- On any *fixed discrete lattice* ($\Delta x > 0$), microscopic ternary cell occupancy is strictly bounded ($n_i \in \{0, 1, 2\}$), guaranteeing that discrete lattice curl is unconditionally bounded ($\|\mathbf{\omega}_{\text{grid}}\|_{L^\infty} \le 2\sqrt{3} \approx 3.46410$).
+- Under physical continuum scaling $\mathbf{\omega}_{\text{phys}} = \mathbf{\omega}_{\text{grid}} / \Delta x$, peak physical vorticity increases with grid resolution ($11.47 \to 18.58 \to 23.65$). Finite state capacity at a fixed lattice spacing does not by itself resolve the Clay Millennium Prize problem for continuous Navier–Stokes; mesh-independent continuum regularity requires formal scaling limit analysis.
 
 ### 3.4 Heat Transport: Hyperbolic Second Sound
 Dividing a $24^3$ torus into Hot ($T = 58$) and Cold ($T = 50$) slabs:
-- In an undamped micro-reversible lattice gas, energy propagates as **hyperbolic thermal waves (Second Sound)** governed by $\tau \partial_{tt} T + \partial_t T = D_{th} \nabla^2 T$.
-- Oscillations represent finite-speed acoustic/thermal reflections before multiple scattering events establish long-time diffusive relaxation.
+- In an undamped micro-reversible lattice gas without artificial viscous dissipation, heat pulses propagate at finite discrete speed ($c \le \sqrt{3}$), producing sign-reversing oscillatory wave reflections characteristic of **hyperbolic thermal waves (Second Sound / Cattaneo regime)** across periodic boundaries.
+- This oscillatory behavior is a genuine physical property of the reversible microdynamics; distinguishing Cattaneo–Maxwell relaxation from Guyer–Krumhansl non-local transport or hydrodynamic phonons remains an active line of inquiry.
 
-### 3.5 Live Coupling to the 300 GB Host8 Process Room Substrate
+### 3.5 Live Coupling to the 300 GB Host8 Process Room Substrate & Cryptographic Provenance
 The simulation engine couples directly to physical binary sectors on the **300 GB Host8 Engine** (`D:/ASOLARIA-HOST8-ROOMS-300G`, 375 sectors $\times 800\text{ MB} = 300\text{ GB}$).
 We probed three representative sectors across the array:
 - **Sector 000 (Head)**: Initial density range $[11, 43]$, mean $26.9253$, native entropy $S_{\text{trit}} = \mathbf{1.09861}$ ($\ln 3$ exact).
+  - Input Binary SHA-256 (first 110,592 bytes): `2dfe7d757ecb012475806b86fcdefc602680d042db836ffbcb2bfe924f2a18ee`
 - **Sector 187 (Ground Zero)**: Initial density range $[9, 43]$, mean $26.9936$, native entropy $S_{\text{trit}} = \mathbf{1.09861}$ ($\ln 3$ exact).
+  - Input Binary SHA-256 (first 110,592 bytes): `6752ab9e2603cc5042f7c7a41c3ddc48ae5571fd0aeb945d0a3f63b1a948a652`
 - **Sector 374 (Boundary)**: Initial density range $[11, 44]$, mean $26.9838$, native entropy $S_{\text{trit}} = \mathbf{1.09861}$ ($\ln 3$ exact).
+  - Input Binary SHA-256 (first 110,592 bytes): `963805be806e8a290aab8dee48b0d214d03015c84e02bf844f0de87e2b37c10a`
+
+**Cryptographic Authentication (`--host8-strict`)**:
+The engine provides a `--host8-strict` CLI flag. When activated, the engine computes the SHA-256 hash of the exact binary byte sequence loaded from the physical sectors, authenticates it against ground truth, and aborts with a non-zero exit code if physical access fails. Cryptographic provenance records are exported to [`host8_verification_provenance.csv`](host8_verification_provenance.csv).
 
 Across all three sectors:
 1. **Machine-Epsilon Energy Conservation**: $\Delta E \equiv 0.00 \times 10^{-16}$ ($dE < 10^{-12}$) across all 48 ticks.
@@ -118,20 +129,24 @@ python reproduce.py
 ```
 This script will:
 1. Compile `asolaria_equilibrium_suite.cpp` with strict flags (`-O3 -std=c++17 -Wall -Wextra -Werror -static`).
-2. Run all 4 arms of the Fundamental Equilibrium Benchmark.
+2. Run all 4 arms of the Fundamental Equilibrium Benchmark (with `--host8-strict` when the physical disk is detected).
 3. Execute the Loschmidt Reversibility, Measured Isotropy, Fixed-Domain Grid Refinement, and Second Sound tests.
-4. Verify all physical invariants and compute cryptographic SHA-256 data checksums in `VERIFICATION_HASHES.md`.
+4. Verify all physical invariants, validate Host8 cryptographic binary provenance, and compute SHA-256 data checksums in `VERIFICATION_HASHES.md`.
+5. Compile and run the independent native C++ checkers (`independent_cpp_equilibrium.cpp`, `independent_physics_probes.cpp`) and the SciPy variable-projection refit observer (`independent_fit.py`).
 
 ---
 
 ## 5. Repository Structure
-- [`asolaria_equilibrium_suite.cpp`](asolaria_equilibrium_suite.cpp): Core C++17 engine implementing the 4-arm benchmark, live QR acoustic fits, distinct parity collision rules, and fixed-domain refinement.
+- [`asolaria_equilibrium_suite.cpp`](asolaria_equilibrium_suite.cpp): Core C++17 engine implementing the 4-arm benchmark, live QR acoustic fits, distinct parity collision rules, fixed-domain refinement, and strict Host8 verification.
 - [`acoustic_damped_fit.h`](acoustic_damped_fit.h): QR variable-projection nonlinear damped harmonic estimator.
-- [`reproduce.py`](reproduce.py): Master test harness with automated assertions on collision distinctness, acoustic fits, and coherent modes.
+- [`sha256.h`](sha256.h): Self-contained, portable SHA-256 implementation for binary block authentication.
+- [`reproduce.py`](reproduce.py): Master test harness with automated assertions on collision distinctness, acoustic fits, Host8 provenance, and independent audit execution.
 - [`INDEPENDENT_REPRODUCTION_VERIFICATION.md`](INDEPENDENT_REPRODUCTION_VERIFICATION.md): Independent GCC 14.2 verification audit documenting 7-decimal place numerical agreement.
 - [`PEER_REVIEW_RESPONSE_6132353.md`](PEER_REVIEW_RESPONSE_6132353.md): Point-by-point technical resolution of the peer review audit.
 - [`ROADMAP.md`](ROADMAP.md): Complete scientific roadmap spanning Phases 1, 2, and 3.
 - [`VERIFICATION_HASHES.md`](VERIFICATION_HASHES.md): Cryptographic SHA-256 checksums of all output datasets.
+- [`independent_audit/`](independent_audit/): Directory containing the independent C++ checker programs and SciPy observer refit script.
+- [`host8_verification_provenance.csv`](host8_verification_provenance.csv): Binary SHA-256 authentication records for the 300 GB Host8 engine.
 - [`arm1_quiescent_results.csv`](arm1_quiescent_results.csv): Quiescent ground state time series.
 - [`arm2_thermal_equilibrium_results.csv`](arm2_thermal_equilibrium_results.csv): Standard thermal equilibrium time series.
 - [`arm3_taylor_green_results.csv`](arm3_taylor_green_results.csv): Taylor–Green vortex time series with coherent mode and stretching rate.

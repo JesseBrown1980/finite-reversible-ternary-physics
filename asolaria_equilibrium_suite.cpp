@@ -16,6 +16,7 @@
 // ============================================================================
 
 #include "acoustic_damped_fit.h"
+#include "sha256.h"
 #include <iostream>
 #include <iomanip>
 #include <vector>
@@ -993,13 +994,15 @@ static bool run_thermal_diffusion() {
 // ----------------------------------------------------------------------------
 // Host8 300 GB Process Room Substrate Loader & Benchmark
 // ----------------------------------------------------------------------------
-static bool load_host8_rooms(const string& path, u64 offset, int num_cells, vector<u8>& state) {
+static bool load_host8_rooms(const string& path, u64 offset, int num_cells, vector<u8>& state, string& out_sha256) {
     std::ifstream file(path, std::ios::binary);
     if (!file) return false;
     file.seekg(offset * 8);
     vector<u64> stubs(num_cells);
     file.read(reinterpret_cast<char*>(stubs.data()), num_cells * 8);
     if (!file) return false;
+
+    out_sha256 = asolaria::SHA256::hash_bytes(reinterpret_cast<const uint8_t*>(stubs.data()), num_cells * 8);
 
     for (int cell = 0; cell < num_cells; ++cell) {
         u64 val = stubs[cell];
@@ -1011,7 +1014,7 @@ static bool load_host8_rooms(const string& path, u64 offset, int num_cells, vect
     return true;
 }
 
-static bool run_host8_suite() {
+static bool run_host8_suite(bool strict_mode = false) {
     string dir = "D:/ASOLARIA-HOST8-ROOMS-300G";
     vector<int> sectors = {0, 187, 374};
     int L = 24;
@@ -1021,13 +1024,24 @@ static bool run_host8_suite() {
     auto v = make_velocities();
     auto col = make_collisions(v, 0);
 
+    const std::map<int, string> auth_hashes = {
+        {0,   "2dfe7d757ecb012475806b86fcdefc602680d042db836ffbcb2bfe924f2a18ee"},
+        {187, "6752ab9e2603cc5042f7c7a41c3ddc48ae5571fd0aeb945d0a3f63b1a948a652"},
+        {374, "963805be806e8a290aab8dee48b0d214d03015c84e02bf844f0de87e2b37c10a"}
+    };
+
     std::cout << "\n=======================================================================\n";
     std::cout << " ASOLARIA 300 GB HOST8 PROCESS ROOM SUBSTRATE BENCHMARK\n";
     std::cout << " Directory: " << dir << " | 375 Sectors x 800 MB = 300 GB Total\n";
     std::cout << " Probing Sectors: Sector 000 (Head), Sector 187 (Ground Zero), Sector 374 (Boundary)\n";
+    std::cout << " Verification Mode: " << (strict_mode ? "STRICT (Failure on missing/corrupt sector)" : "STANDARD (Skip if drive not mounted)") << "\n";
     std::cout << "=======================================================================\n";
 
     bool all_ok = true;
+    int executed_count = 0;
+
+    std::ofstream prov_csv("host8_verification_provenance.csv");
+    prov_csv << "sector,filepath,byte_offset,num_bytes,num_rooms,num_trits,sha256_hash,auth_hash_match,entropy_trit,e_total_dev,max_vorticity,loschmidt_mismatches,status\n";
 
     for (int sec : sectors) {
         std::ostringstream ss;
@@ -1035,14 +1049,26 @@ static bool run_host8_suite() {
         string path = ss.str();
 
         vector<u8> state(V * K, 0);
-        bool loaded = load_host8_rooms(path, 0, V, state);
+        string block_sha256;
+        bool loaded = load_host8_rooms(path, 0, V, state, block_sha256);
         if (!loaded) {
-            std::cout << "[SKIP] Could not open " << path << "\n";
+            if (strict_mode) {
+                std::cerr << "\n[ERROR] Host8 STRICT verification failure: Unable to open or read " << path << "\n";
+                all_ok = false;
+            } else {
+                std::cout << "[SKIP] Could not open " << path << " (Physical drive not mounted in this container)\n";
+            }
+            prov_csv << sec << "," << path << ",0,110592," << V << "," << (V * K) << ",NONE,0,0.0,0.0,0.0,0,SKIPPED\n";
             continue;
         }
 
+        executed_count++;
+        bool hash_match = (auth_hashes.count(sec) && auth_hashes.at(sec) == block_sha256);
+
         std::cout << "\n>>> [Host8 Sector " << std::setw(3) << std::setfill('0') << sec
                   << "] Successfully loaded " << V << " rooms (" << V * K << " trits) directly from 300 GB drive <<<\n";
+        std::cout << "  - Input Binary Block SHA-256 : " << block_sha256 << "\n";
+        std::cout << "  - Binary Provenance Auth     : " << (hash_match ? "PASS (100% Authenticated Ground Truth)" : "FAIL (Hash Mismatch)") << "\n";
 
         Metrics m0 = measure_state(L, 0, state, v, 0.0, nu_eff);
         std::cout << "  - Initial Density Range : [" << m0.density_min << ", " << m0.density_max
@@ -1102,8 +1128,19 @@ static bool run_host8_suite() {
         std::cout << "  - Global Regularity Check         : " << (reg_ok ? "PASS (|omega|_max < 3.464)" : "FAIL") << "\n";
         std::cout << "  - Loschmidt Reversibility on Host8: " << (rev_ok ? "PASS (0 / 373,248 Mismatches, 100% Exact Recurrence)" : "FAIL") << "\n";
 
-        all_ok &= (cons_ok && reg_ok && rev_ok);
+        prov_csv << sec << "," << path << ",0,110592," << V << "," << (V * K) << ","
+                 << block_sha256 << "," << (hash_match ? 1 : 0) << ","
+                 << m0.entropy_trit << "," << dE << "," << max_observed_vort << ","
+                 << mismatches << "," << (cons_ok && reg_ok && rev_ok && hash_match ? "VERIFIED" : "FAIL") << "\n";
+
+        all_ok &= (cons_ok && reg_ok && rev_ok && hash_match);
     }
+
+    if (strict_mode && executed_count < static_cast<int>(sectors.size())) {
+        std::cerr << "[ERROR] Host8 strict mode: Only executed " << executed_count << " of " << sectors.size() << " sectors.\n";
+        all_ok = false;
+    }
+
     return all_ok;
 }
 
@@ -1113,23 +1150,33 @@ static bool run_host8_suite() {
 int main(int argc, char** argv) {
     bool run_all = (argc == 1);
     bool run_host8 = false;
+    bool host8_strict = false;
+    bool standalone = false;
     bool ok = true;
 
     for (int i = 1; i < argc; ++i) {
         string arg = argv[i];
         if (arg == "--all") run_all = true;
         if (arg == "--host8") run_host8 = true;
+        if (arg == "--host8-strict") { host8_strict = true; run_host8 = true; }
+        if (arg == "--standalone") standalone = true;
     }
 
-    if (run_all) {
+    if (standalone) {
         ok &= run_four_arms();
         ok &= run_isotropy();
         ok &= run_reversibility();
         ok &= run_grid_refinement();
         ok &= run_thermal_diffusion();
-        ok &= run_host8_suite();
+    } else if (run_all) {
+        ok &= run_four_arms();
+        ok &= run_isotropy();
+        ok &= run_reversibility();
+        ok &= run_grid_refinement();
+        ok &= run_thermal_diffusion();
+        ok &= run_host8_suite(host8_strict);
     } else if (run_host8) {
-        ok &= run_host8_suite();
+        ok &= run_host8_suite(host8_strict);
     }
 
     std::cout << "\n=======================================================================\n";

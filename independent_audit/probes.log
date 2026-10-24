@@ -1,0 +1,11 @@
+THERMAL tick=0 delta_T=8
+THERMAL tick=7 delta_T=-0.33912
+THERMAL tick=12 delta_T=-6.46991
+THERMAL tick=20 delta_T=-0.293981
+THERMAL tick=27 delta_T=5.59028
+THERMAL tick=36 delta_T=-2.6713
+ISOTROPY exported=X 61_timestamps
+ISOTROPY exported=Y 61_timestamps
+ISOTROPY exported=Z 61_timestamps
+ISOTROPY exported=Diagonal 61_timestamps
+PASS native independent kinetic+isotropy probes

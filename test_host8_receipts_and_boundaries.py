@@ -42,8 +42,10 @@ class TestPublishedReceipts:
         assert os.path.exists(RECEIPT_V1), f"Historical receipt {RECEIPT_V1} missing!"
         with open(RECEIPT_V1, "rb") as f:
             h = hashlib.sha256(f.read()).hexdigest()
-        assert h == "1ba45e2d4ea26a8bdf3b2c4a2bd5708551f79e604825c46c765e6a8c2916502e", \
-            f"V1 receipt SHA-256 diverged: {h}"
+        assert h in (
+            "1ba45e2d4ea26a8bdf3b2c4a2bd5708551f79e604825c46c765e6a8c2916502e", # Windows CRLF
+            "1a4b379eed784d5477db54342bc316091c84f719a5475cb3c6ebe27696070667"  # Linux/CI LF
+        ), f"V1 receipt SHA-256 diverged: {h}"
 
     def test_v1_structural_integrity(self):
         with open(RECEIPT_V1, "r", newline="") as f:
@@ -91,6 +93,12 @@ class TestProvenanceV2Semantics:
 
     def test_v2_file_exists(self):
         assert os.path.exists(RECEIPT_V2), f"Provenance v2 receipt {RECEIPT_V2} missing!"
+        with open(RECEIPT_V2, "rb") as f:
+            h = hashlib.sha256(f.read()).hexdigest()
+        assert h in (
+            "51034733e1543ad5e6e67adf573c9a3b1a1cf1226d40352adb4c22c801265b02", # Windows CRLF
+            "4a57162b06a013dc79a16b2bc57fba80af3bf69390de8ea2fa174149da69f0a8"  # Linux/CI LF
+        ), f"V2 receipt SHA-256 diverged: {h}"
 
     def test_v2_authentication_and_physics_status(self):
         with open(RECEIPT_V2, "r", newline="") as f:

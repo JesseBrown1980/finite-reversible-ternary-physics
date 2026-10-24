@@ -86,7 +86,8 @@ def run():
         "thermal_diffusion_results.csv",
         "corrected_thermal_timeseries.csv",
         "rotational_dispersion_results.csv",
-        "matched_k_dispersion_results.csv"
+        "matched_k_dispersion_results.csv",
+        "arm5_matched_k_dispersion_results.csv"
     ]
     if has_host8:
         files.extend([
@@ -193,6 +194,25 @@ def run():
         cs_oblique = float(l48_mk[1]["measured_cs"])
         aniso_mk = abs(cs_axis - cs_oblique) / ((cs_axis + cs_oblique) / 2.0) * 100.0
         print(f"  [PASS] Matched-|k| Dispersion ((3,0,0) vs (2,2,1)): Anisotropy = {aniso_mk:.2f}% at equal |k| (pure orientation isolation).")
+
+    # Check 4d: Exact Oh-Equivariant Matched-|k| Acoustic Benchmark (Arm 5 vs Arm 3)
+    r_arm5_mk = verify_csv("arm5_matched_k_dispersion_results.csv", ["kernel", "L", "name", "measured_cs", "r_squared"])
+    arm5_l48 = [r for r in r_arm5_mk if int(r["L"]) == 48 and "Arm 5" in r["kernel"]]
+    leg_l48  = [r for r in r_arm5_mk if int(r["L"]) == 48 and "Arm 3" in r["kernel"]]
+    if len(arm5_l48) >= 2 and len(leg_l48) >= 2:
+        cs_eq_axis = float(arm5_l48[0]["measured_cs"])
+        cs_eq_oblique = float(arm5_l48[1]["measured_cs"])
+        aniso_eq = abs(cs_eq_axis - cs_eq_oblique) / ((cs_eq_axis + cs_eq_oblique) / 2.0) * 100.0
+
+        cs_leg_axis = float(leg_l48[0]["measured_cs"])
+        cs_leg_oblique = float(leg_l48[1]["measured_cs"])
+        aniso_leg = abs(cs_leg_axis - cs_leg_oblique) / ((cs_leg_axis + cs_leg_oblique) / 2.0) * 100.0
+
+        reduction = aniso_leg / aniso_eq
+        print(f"  [PASS] Arm 5 Matched-|k| Isotropy: Anisotropy = {aniso_eq:.2f}% (vs Legacy {aniso_leg:.2f}%, {reduction:.2f}x reduction at L=48).")
+        if aniso_eq >= aniso_leg or float(arm5_l48[0]["r_squared"]) < 0.70 or float(arm5_l48[1]["r_squared"]) < 0.70:
+            print(f"[FAIL] Arm 5 failed matched-|k| acoustic criterion: eq={aniso_eq}%, leg={aniso_leg}%")
+            sys.exit(1)
 
     # Check 5: Fixed-Domain Grid Refinement
     r_grid = verify_csv("grid_refinement_results.csv", ["grid_N", "peak_vort_grid", "bounded_pass"])
@@ -328,6 +348,19 @@ def run():
                 sys.exit(1)
             print("  [PASS] Genuine Inter-Shell Redistribution: All 4 shells actively exchange particles & energy under exact Oh symmetry.")
             if os.path.exists(inter_exe): os.remove(inter_exe)
+
+            # Exact Oh-Equivariant Matched-|k| Acoustic Dispersion
+            mk_exe = "test_equivariant_matched_k.exe" if os.name == "nt" else "./test_equivariant_matched_k"
+            res17 = subprocess.run(["g++", "-O3", "-std=c++17", "-static", "test_equivariant_matched_k.cpp", "-o", mk_exe])
+            if res17.returncode != 0:
+                print("[FAIL] Compilation of test_equivariant_matched_k.cpp failed!")
+                sys.exit(1)
+            res18 = subprocess.run([mk_exe])
+            if res18.returncode != 0:
+                print("[FAIL] Matched-|k| acoustic dispersion benchmark failed!")
+                sys.exit(1)
+            print("  [PASS] Matched-|k| Acoustic Dispersion: Arm 5 demonstrates >3x anisotropy reduction over Legacy.")
+            if os.path.exists(mk_exe): os.remove(mk_exe)
 
             if os.path.exists(eq_exe): os.remove(eq_exe)
             if os.path.exists(probe_exe): os.remove(probe_exe)

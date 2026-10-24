@@ -1,0 +1,7 @@
+HEAT t=0 hot=56 cold=52 delta=4 rho=27,27 local_px_rms=0 range=27..27
+HEAT t=1 hot=55 cold=53 delta=2 rho=26.3333,27.6667 local_px_rms=1.63299 range=23..31
+HEAT t=6 hot=52.6667 cold=55.3333 delta=-2.66667 rho=25.6667,28.3333 local_px_rms=2 range=21..33
+HEAT t=12 hot=48.6667 cold=59.3333 delta=-10.6667 rho=23.6667,30.3333 local_px_rms=1.1547 range=19..35
+HEAT t=24 hot=57.3333 cold=50.6667 delta=6.66667 rho=28.3333,25.6667 local_px_rms=1.63299 range=23..31
+HEAT t=48 hot=60 cold=48 delta=12 rho=31,23 local_px_rms=1.1547 range=19..35
+ALL_TICKS_GLOBAL_N_E_P_EXACT=1
